@@ -9,6 +9,11 @@ export interface PatchEntry {
   description: string
   /** Issues the patch fixes, as `owner/repo#n`. */
   fixes?: string[]
+  /**
+   * Dependency ranges the patch changes in `package.json`, written by `refresh commit`. npm resolves
+   * dependencies before `patchbay apply` runs, so sync passes these to npm as nested overrides.
+   */
+  dependencies?: Record<string, string>
 }
 
 export interface Manifest {

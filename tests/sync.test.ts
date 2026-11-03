@@ -66,10 +66,12 @@ test('npm: overrides, direct dependencies pinned to the same spec, postinstall a
   sync(dir, { pm: 'npm' })
   sync(dir, { pm: 'npm' })
   const pkg = readJson(join(dir, 'package.json'))
-  assert.equal(pkg.overrides?.['koishi'], `npm:@koishijs/core@${koishi.version}`)
+  assert.deepEqual(pkg.overrides?.['koishi'], { '.': `npm:@koishijs/core@${koishi.version}`, ...koishi.dependencies })
   assert.equal(pkg.dependencies?.['koishi'], `npm:@koishijs/core@${koishi.version}`)
   assert.equal(pkg.dependencies?.['cordis'], '^4.0.0-rc.12')
   assert.equal(pkg.scripts?.['postinstall'], 'echo hi && patchbay apply')
+  const satori = manifest.patches.find((entry) => entry.name === '@satorijs/core')!
+  assert.deepEqual(pkg.overrides?.['@satorijs/core'], { '.': satori.version, ...satori.dependencies })
 })
 
 test('a resync drops pins the previous manifest wrote', () => {

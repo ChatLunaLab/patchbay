@@ -16,6 +16,7 @@ export interface PackageJson {
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
   optionalDependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
   resolutions?: Record<string, string>
   overrides?: Record<string, unknown>
 }
@@ -112,7 +113,10 @@ function writeNpm(dir: string, manifest: Manifest, previous: Manifest | undefine
     const overrides = { ...pkg.overrides }
     for (const name of previous ? pinned(previous).keys() : []) delete overrides[name]
     const specs = pinned(manifest)
-    for (const [name, entry] of specs) overrides[name] = npmSpec(name, entry)
+    for (const [name, entry] of specs) {
+      // Ranges the patch changes would otherwise resolve from the unpatched package.json.
+      overrides[name] = entry.dependencies ? { '.': npmSpec(name, entry), ...entry.dependencies } : npmSpec(name, entry)
+    }
     pkg.overrides = overrides
     // npm rejects an override that differs from a direct dependency's own spec (EOVERRIDE).
     for (const deps of [pkg.dependencies, pkg.devDependencies, pkg.optionalDependencies]) {

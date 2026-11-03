@@ -7,6 +7,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import { join } from 'node:path'
 import { loadManifest, patchFileName, patchPath, ROOT, type PatchEntry } from '../src/manifest.ts'
 import { applyPatchText } from '../src/patch.ts'
+import { readPackageJson, type PackageJson } from '../src/sync.ts'
 
 const WORK = join(ROOT, '.work')
 
@@ -54,6 +55,21 @@ function commit(entry: PatchEntry): void {
   if (diff.stdout === '') throw new Error(`${entry.name}@${entry.version}: no changes`)
   writeFileSync(patchPath(entry), diff.stdout)
   console.log(`wrote patches/${patchFileName(entry)}`)
+  recordDependencies(entry, readPackageJson(join(dir, 'a')), readPackageJson(join(dir, 'b')))
+}
+
+/** Keep the entry's `dependencies` in step with the ranges the patch changes in package.json. */
+function recordDependencies(entry: PatchEntry, before: PackageJson, after: PackageJson): void {
+  const ranges = (pkg: PackageJson, name: string) => pkg.dependencies?.[name] ?? pkg.peerDependencies?.[name]
+  const changed = Object.keys({ ...before.dependencies, ...before.peerDependencies }).flatMap((name): [string, string][] => {
+    const range = ranges(after, name)
+    return range === undefined || range === ranges(before, name) ? [] : [[name, range]]
+  })
+  const manifest = loadManifest()
+  const target = manifest.patches.find((item) => item.name === entry.name && item.version === entry.version)!
+  delete target.dependencies
+  if (changed.length) target.dependencies = Object.fromEntries(changed)
+  writeFileSync(join(ROOT, 'patchbay.json'), JSON.stringify(manifest, null, 2) + '\n')
 }
 
 function find(name: string): PatchEntry {

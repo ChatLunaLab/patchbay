@@ -33,12 +33,27 @@
     {
       "name": "@koishijs/core",
       "version": "4.18.11",
-      "description": "Run Koishi on Cordis 4; also installed as koishi"
+      "description": "Run Koishi on Cordis 4; also installed as koishi. Inject shapes are normalized by the @satorijs/core patch",
+      "fixes": [
+        "ChatLunaLab/boilerplate#12"
+      ],
+      "dependencies": {
+        "cordis": "^4.0.0-rc.8"
+      }
     },
     {
       "name": "@satorijs/core",
       "version": "4.6.1",
-      "description": "Run Satori on Cordis 4"
+      "description": "Run Satori and its adapters on Cordis 4: { required, optional } inject, ready/dispose events, a Quester-compatible http for adapter fibers",
+      "fixes": [
+        "ChatLunaLab/v2-mirror#14",
+        "ChatLunaLab/boilerplate#12",
+        "ChatLunaLab/boilerplate#13"
+      ],
+      "dependencies": {
+        "@cordisjs/plugin-http": "^1.5.1",
+        "cordis": "^4.0.0-rc.8"
+      }
     },
     {
       "name": "koishi-plugin-adapter-onebot",

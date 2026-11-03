@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { before, describe, test } from 'node:test'
@@ -66,5 +66,33 @@ describe('real installs', { timeout: 300_000 }, () => {
     run(dir, 'npm', ['install'])
     assertPatched(dir)
     assert.equal(run(dir, 'npx', ['patchbay', 'apply']), '', 'a second apply finds nothing to do')
+  })
+
+  // npm also covers the nested overrides that keep @satorijs/core off cordis 3.
+  test('satori adapters run on cordis 4', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'patchbay-satori-'))
+    const pkg = {
+      name: 'fixture',
+      private: true,
+      type: 'module',
+      dependencies: {
+        cordis: '4.0.0-rc.12',
+        '@cordisjs/plugin-http': '1.5.2',
+        '@satorijs/core': '4.6.1',
+        '@satorijs/adapter-satori': '1.5.1',
+        '@satorijs/adapter-qq': '4.14.1',
+        undici: '^7.16.0',
+        ws: '^8.18.0'
+      },
+      devDependencies: { '@chatluna/patchbay': `file:${tarball}` }
+    }
+    writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg, null, 2))
+    run(dir, 'node', [PATCHBAY, 'sync', '--pm', 'npm'])
+    run(dir, 'npm', ['install'])
+    assert.throws(() => readFileSync(join(dir, 'node_modules/@satorijs/core/node_modules/cordis/package.json')))
+    for (const name of ['shim.mjs', 'adapters.mjs']) {
+      cpSync(join(ROOT, 'tests/fixtures/satori', name), join(dir, name))
+      run(dir, 'node', [name])
+    }
   })
 })

@@ -68,15 +68,15 @@ index 642da25..b39b250 100644
      [Service.tracker]: {
          associate: string;
 diff --git a/lib/index.mjs b/lib/index.mjs
-index 79916ba..c1f567d 100644
+index 79916ba..3fe3f6a 100644
 --- a/lib/index.mjs
 +++ b/lib/index.mjs
-@@ -2,7 +2,34 @@ var __defProp = Object.defineProperty;
+@@ -2,7 +2,170 @@ var __defProp = Object.defineProperty;
  var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
  
  // src/index.ts
 -import { Context as Context4, Logger as Logger2, Service as Service4, z as z2 } from "cordis";
-+import { Context as Context4, Service as Service4, getTraceable } from "cordis";
++import { Context as Context4, Inject, RegistryService, Service as Service4, getTraceable } from "cordis";
 +import Schema4 from "schemastery";
 +// Module-level loggers lack a Context; forward to the host target or console until upstream supports Cordis 4.
 +class SatoriLoggerShim {
@@ -98,16 +98,152 @@ index 79916ba..c1f567d 100644
 +const z2 = Schema4;
 +// Cordis 4 has no ready event; use the fiber state transition.
 +function onReady(ctx, cb) {
-+  if (ctx.fiber.state === 2) { setTimeout(cb, 0); return () => {}; }
++  if (ctx.fiber.state === 2) {
++    const timer = setTimeout(cb, 0);
++    return () => clearTimeout(timer);
++  }
 +  const off = ctx.on("internal/status", (fiber) => {
 +    if (fiber === ctx.fiber && fiber.state === 2) { off(); Promise.resolve().then(cb); }
 +  });
 +  return off;
 +}
++// Satori and Koishi plugins declare `inject = { required, optional }`, but Cordis 4 reads every key of
++// an inject object as a service name, so such a plugin waits forever for services named "required"
++// and "optional". Normalize the shape where Cordis resolves it, at module load so no plugin can be
++// registered first. Optional names are kept for the internal/get hook in the Satori service, and Bot
++// and Adapter plugins also wait for `satori`, which every Bot constructor reads.
++const kOptional = Symbol.for("satori.cordis4.optional");
++let resolving;
++if (!Object.hasOwn(RegistryService.prototype, kOptional)) {
++  Object.defineProperty(RegistryService.prototype, kOptional, { value: true });
++  const plugin = RegistryService.prototype.plugin;
++  RegistryService.prototype.plugin = function(target, ...args) {
++    const outer = resolving;
++    resolving = target;
++    try {
++      return plugin.call(this, target, ...args);
++    } finally {
++      resolving = outer;
++    }
++  };
++  const resolve = Inject.resolve;
++  Inject.resolve = function(inject, result) {
++    const shaped = !!inject && !Array.isArray(inject) && (Array.isArray(inject.required) || Array.isArray(inject.optional));
++    const resolved = resolve(shaped ? inject.required ?? [] : inject, result);
++    if (shaped) Object.defineProperty(resolved, kOptional, { value: inject.optional ?? [] });
++    const proto = resolving?.prototype;
++    if ((proto instanceof Bot || proto instanceof Adapter) && !("satori" in resolved)) resolved.satori = null;
++    return resolved;
++  };
++}
++function isOptional(fiber, name) {
++  for (; fiber; fiber = fiber.runtime && fiber.parent.fiber) {
++    if (fiber.inject[kOptional]?.includes(name)) return true;
++  }
++  return false;
++}
++const satoriFibers = /* @__PURE__ */ new WeakMap();
++function isSatoriFiber(fiber) {
++  if (!fiber.runtime) return false;
++  let result = satoriFibers.get(fiber);
++  if (result !== void 0) return result;
++  const proto = fiber.runtime.callback.prototype;
++  result = proto instanceof Bot || proto instanceof Adapter || isSatoriFiber(fiber.parent.fiber);
++  satoriFibers.set(fiber, result);
++  return result;
++}
++// Satori adapters are written against the Quester client of Cordis 3: `http(url)` resolves to
++// `{ data, status, headers }` and throws on 4xx/5xx, `endpoint` is joined as a string prefix, and
++// `file()` / `isLocal()` exist. @cordisjs/plugin-http 1.x returns a raw Response, never throws on
++// status, uses `baseUrl` and has neither helper. Adapter fibers see this facade over it instead.
++const trimSlash = /* @__PURE__ */ __name((source) => source.replace(/\/$/, ""), "trimSlash");
++const questers = /* @__PURE__ */ new WeakMap();
++let localAddresses;
++function toQuester(http, endpoint) {
++  if (endpoint === void 0 && questers.has(http)) return questers.get(http);
++  const resolveUrl = /* @__PURE__ */ __name((url) => {
++    if (!endpoint || typeof url !== "string" || URL.canParse(url)) return url;
++    return trimSlash(endpoint) + url;
++  }, "resolveUrl");
++  const request = /* @__PURE__ */ __name(async function(...args) {
++    const method = typeof args[1] === "string" || args[1] instanceof URL ? args.shift() : void 0;
++    const { validateStatus = /* @__PURE__ */ __name((status) => status < 400, "validateStatus"), ...config } = args[1] ?? {};
++    const raw = await http(resolveUrl(args[0]), { ...config, method: method ?? config.method });
++    const response = { data: null, url: raw.url, status: raw.status, statusText: raw.statusText, headers: raw.headers };
++    if (!validateStatus(raw.status)) {
++      response.data = await http.defaultDecoder(raw).catch(() => null);
++      throw new Http.Error(raw.statusText, "STATUS_ERROR", response);
++    }
++    response.data = await http._decode(raw);
++    return response;
++  }, "request");
++  const methods = {
++    get: /* @__PURE__ */ __name((url, config) => request(url, { method: "GET", ...config }).then((r) => r.data), "get"),
++    delete: /* @__PURE__ */ __name((url, config) => request(url, { method: "DELETE", ...config }).then((r) => r.data), "delete"),
++    patch: /* @__PURE__ */ __name((url, data, config) => request(url, { method: "PATCH", data, ...config }).then((r) => r.data), "patch"),
++    post: /* @__PURE__ */ __name((url, data, config) => request(url, { method: "POST", data, ...config }).then((r) => r.data), "post"),
++    put: /* @__PURE__ */ __name((url, data, config) => request(url, { method: "PUT", data, ...config }).then((r) => r.data), "put"),
++    head: /* @__PURE__ */ __name((url, config) => request(url, { method: "HEAD", ...config }).then((r) => r.headers), "head"),
++    ws: /* @__PURE__ */ __name((url, config) => http.ws(resolveUrl(url), config), "ws"),
++    extend: /* @__PURE__ */ __name((config = {}) => {
++      const { endpoint: next = endpoint, baseURL, ...rest } = config;
++      return toQuester(http.extend(baseURL === void 0 ? rest : { ...rest, baseUrl: baseURL }), next);
++    }, "extend"),
++    isError: Http.Error.is,
++    file: /* @__PURE__ */ __name(async (url, options = {}) => {
++      const task = await http.ctx.serial(facade, "http/file", url, options);
++      if (task) return task;
++      const { headers, data, url: responseUrl } = await request(url, {
++        method: "GET",
++        responseType: "arraybuffer",
++        timeout: +options.timeout || void 0
++      });
++      const type = headers.get("content-type") ?? void 0;
++      // A data: URL response has no url to take a name from.
++      const filename = /.+\/([^/?]*)(?=\?)?/.exec(responseUrl)?.[1] || `file.${type?.split("/")[1]?.split(/[;+]/)[0] ?? "bin"}`;
++      return { type, mime: type, filename, data };
++    }, "file"),
++    isLocal: /* @__PURE__ */ __name(async (url) => {
++      const { hostname, protocol } = new URL(url);
++      if (protocol !== "http:" && protocol !== "https:") return true;
++      const [{ lookup }, { BlockList }] = await Promise.all([import("node:dns/promises"), import("node:net")]);
++      if (!localAddresses) {
++        localAddresses = new BlockList();
++        for (const range of ["0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24", "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/3"]) {
++          const [address, prefix] = range.split("/");
++          localAddresses.addSubnet(address, +prefix, "ipv4");
++        }
++        for (const range of ["::/128", "::1/128", "64:ff9b::/96", "100::/64", "2001:db8::/32", "fc00::/7", "fe80::/10", "ff00::/8"]) {
++          const [address, prefix] = range.split("/");
++          localAddresses.addSubnet(address, +prefix, "ipv6");
++        }
++      }
++      try {
++        const { address, family } = await lookup(hostname.replace(/^\[(.+)\]$/, "$1"));
++        return localAddresses.check(address, family === 6 ? "ipv6" : "ipv4");
++      } catch {
++        return false;
++      }
++    }, "isLocal")
++  };
++  const facade = new Proxy(request, {
++    get(target, prop) {
++      // Symbols stay local: forwarding the client's tracker or invoke symbol would make Cordis
++      // trace this facade as the raw client.
++      if (typeof prop === "symbol") return Reflect.get(target, prop);
++      if (Object.hasOwn(methods, prop)) return methods[prop];
++      if (prop === "config") return { ...http.config, endpoint };
++      const value = Reflect.get(http, prop);
++      return typeof value === "function" ? value.bind(http) : value;
++    }
++  });
++  if (endpoint === void 0) questers.set(http, facade);
++  return facade;
++}
  import { defineProperty as defineProperty2 } from "cosmokit";
  
  // src/internal.ts
-@@ -121,9 +148,11 @@ var JsonForm;
+@@ -121,9 +284,11 @@ var JsonForm;
  })(JsonForm || (JsonForm = {}));
  
  // src/index.ts
@@ -120,7 +256,7 @@ index 79916ba..c1f567d 100644
  export * from "cosmokit";
  import * as Universal from "@satorijs/protocol";
  
-@@ -158,9 +187,8 @@ var Session = class {
+@@ -158,9 +323,8 @@ var Session = class {
      this.event = event;
      this.sn = this.id = ++bot.ctx.satori._sessionSeq;
      defineProperty(this, "bot", bot);
@@ -132,7 +268,7 @@ index 79916ba..c1f567d 100644
    }
    /** @deprecated */
    get data() {
-@@ -299,12 +327,12 @@ var Bot = class {
+@@ -299,12 +463,12 @@ var Bot = class {
      this.logger = ctx.logger(adapterName);
      this.platform = adapterName;
      this.features = Object.entries(Methods).filter(([, value]) => this[value.name]).map(([key]) => key);
@@ -147,15 +283,22 @@ index 79916ba..c1f567d 100644
      ctx.on("interaction/button", (session) => {
        const cb = this.callbacks[session.event.button.id];
        if (cb) cb(session);
-@@ -317,6 +345,7 @@ var Bot = class {
+@@ -317,10 +481,12 @@ var Bot = class {
      __name(this, "Bot");
    }
    static reusable = true;
 +  static inject = ["satori"];
    static MessageEncoder;
++  // No `property: "ctx"`: adapters read `bot.ctx.http` / `bot.ctx.server` from code another plugin
++  // calls, and those must resolve on the bot's own fiber, not the caller's.
    [Service3.tracker] = {
-     associate: "bot",
-@@ -414,7 +443,7 @@ var Bot = class {
+-    associate: "bot",
+-    property: "ctx"
++    associate: "bot"
+   };
+   sn;
+   user;
+@@ -414,7 +580,7 @@ var Bot = class {
      return new Session(this, event);
    }
    dispatch(session) {
@@ -164,7 +307,7 @@ index 79916ba..c1f567d 100644
      let events = [session.type];
      for (const aliases of eventAliases) {
        if (aliases.includes(session.type)) {
-@@ -468,7 +497,7 @@ var Bot = class {
+@@ -468,7 +634,7 @@ var Bot = class {
          delete this.ctx.satori._tempStore[id];
        }
      }, "dispose");
@@ -173,7 +316,7 @@ index 79916ba..c1f567d 100644
      return ids.map((id) => this.getInternalUrl(`/_tmp/${id}`));
    }
    async supports(name, session = {}) {
-@@ -530,7 +559,7 @@ defineAccessor(Bot.prototype, "userId", ["user", "id"]);
+@@ -530,7 +696,7 @@ defineAccessor(Bot.prototype, "userId", ["user", "id"]);
  // src/adapter.ts
  import { remove as remove2, Time } from "cosmokit";
  import { Status as Status2 } from "@satorijs/protocol";
@@ -182,7 +325,7 @@ index 79916ba..c1f567d 100644
  var Adapter = class {
    constructor(ctx) {
      this.ctx = ctx;
-@@ -548,10 +577,15 @@ var Adapter = class {
+@@ -548,10 +714,15 @@ var Adapter = class {
    fork(ctx, bot) {
      bot.adapter = this;
      this.bots.push(bot);
@@ -199,7 +342,7 @@ index 79916ba..c1f567d 100644
  };
  ((Adapter2) => {
    Adapter2.WsClientConfig = z.object({
-@@ -614,7 +648,8 @@ var Adapter = class {
+@@ -614,7 +785,8 @@ var Adapter = class {
          socket.addEventListener("open", () => {
            retryCount = 0;
            this.socket = socket;
@@ -209,7 +352,7 @@ index 79916ba..c1f567d 100644
            this.accept(socket);
          });
        }, "connect");
-@@ -724,7 +759,7 @@ var MessageEncoder = class {
+@@ -724,7 +896,7 @@ var MessageEncoder = class {
  
  // src/index.ts
  h3.warn = new Logger2("element").warn;
@@ -218,7 +361,7 @@ index 79916ba..c1f567d 100644
    return z2.object({
      endpoint: z2.string().role("link").description("要连接的服务器地址。").default(typeof endpoint === "string" ? endpoint : void 0).required(typeof endpoint === "boolean" ? endpoint : false),
      headers: z2.dict(String).role("table").description("要附加的额外请求头。"),
-@@ -737,7 +772,7 @@ var SatoriContext = class extends Context4 {
+@@ -737,7 +909,7 @@ var SatoriContext = class extends Context4 {
    }
    constructor(config) {
      super(config);
@@ -227,16 +370,33 @@ index 79916ba..c1f567d 100644
      this.plugin(Satori);
    }
  };
-@@ -799,7 +834,7 @@ var Satori = class extends Service4 {
+@@ -799,7 +971,24 @@ var Satori = class extends Service4 {
    _loginSeq = 0;
    _sessionSeq = 0;
    constructor(ctx) {
 -    super(ctx);
 +    super(ctx, "satori");
++    // Cordis 4 dropped the ready and dispose events adapters still listen to; map both onto the fiber.
++    ctx.on("internal/listener", function(name, listener) {
++      if (name === "ready") return onReady(this, listener);
++      if (name !== "dispose") return;
++      let active = true;
++      const dispose = this.effect(() => () => active && listener());
++      return () => {
++        active = false;
++        dispose();
++      };
++    });
++    // Prepended so a host's own global lookup cannot hand an adapter the raw client first.
++    ctx.on("internal/get", (target, name, error, next) => {
++      if (name === "http") return isSatoriFiber(target.fiber) ? toQuester(next()) : next();
++      if (isOptional(target.fiber, name)) return target.get(name);
++      return next();
++    }, { prepend: true });
      ctx.mixin("satori", ["bots", "component"]);
      defineProperty2(this.bots, Service4.tracker, {});
      const self = this;
-@@ -871,6 +906,8 @@ var Satori = class extends Service4 {
+@@ -871,6 +1060,8 @@ var Satori = class extends Service4 {
        const result = await component(attrs, children, session);
        return session.transform(h3.normalize(result));
      }, "render");
@@ -245,7 +405,7 @@ index 79916ba..c1f567d 100644
      return this.ctx.set("component:" + name, render);
    }
    defineInternalRoute(path, callback) {
-@@ -900,13 +937,14 @@ export {
+@@ -900,13 +1091,14 @@ export {
    Bot,
    SatoriContext as Context,
    h3 as Element,

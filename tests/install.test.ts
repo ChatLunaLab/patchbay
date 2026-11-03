@@ -78,9 +78,15 @@ describe('real installs', { timeout: 300_000 }, () => {
       dependencies: {
         cordis: '4.0.0-rc.12',
         '@cordisjs/plugin-http': '1.5.2',
+        '@cordisjs/plugin-server': '1.7.0',
+        '@cordisjs/plugin-timer': '1.1.4',
         '@satorijs/core': '4.6.1',
         '@satorijs/adapter-satori': '1.5.1',
         '@satorijs/adapter-qq': '4.14.1',
+        '@satorijs/adapter-slack': '2.5.0',
+        '@satorijs/adapter-telegram': '4.5.11',
+        koishi: '^4.18.0',
+        'koishi-plugin-adapter-onebot': '6.9.5',
         undici: '^7.16.0',
         ws: '^8.18.0'
       },
@@ -90,7 +96,7 @@ describe('real installs', { timeout: 300_000 }, () => {
     run(dir, 'node', [PATCHBAY, 'sync', '--pm', 'npm'])
     run(dir, 'npm', ['install'])
     assert.throws(() => readFileSync(join(dir, 'node_modules/@satorijs/core/node_modules/cordis/package.json')))
-    for (const name of ['shim.mjs', 'adapters.mjs']) {
+    for (const name of ['shim.mjs', 'adapters.mjs', 'webhooks.mjs']) {
       cpSync(join(ROOT, 'tests/fixtures/satori', name), join(dir, name))
       run(dir, 'node', [name])
     }

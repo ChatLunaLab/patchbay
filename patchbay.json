@@ -44,7 +44,7 @@
     {
       "name": "@satorijs/core",
       "version": "4.6.1",
-      "description": "Run Satori and its adapters on Cordis 4: { required, optional } inject, ready/dispose events, a Quester-compatible http for adapter fibers",
+      "description": "Run Satori and its adapters on Cordis 4: { required, optional } inject, ready/dispose events, Koishi 4 service lookups, a Quester-compatible http and a Koa-style server for adapter fibers",
       "fixes": [
         "ChatLunaLab/v2-mirror#14",
         "ChatLunaLab/boilerplate#12",

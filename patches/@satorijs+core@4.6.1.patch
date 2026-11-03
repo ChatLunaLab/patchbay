@@ -68,10 +68,10 @@ index 642da25..b39b250 100644
      [Service.tracker]: {
          associate: string;
 diff --git a/lib/index.mjs b/lib/index.mjs
-index 79916ba..3fe3f6a 100644
+index 79916ba..93a2e63 100644
 --- a/lib/index.mjs
 +++ b/lib/index.mjs
-@@ -2,7 +2,170 @@ var __defProp = Object.defineProperty;
+@@ -2,7 +2,276 @@ var __defProp = Object.defineProperty;
  var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
  
  // src/index.ts
@@ -190,7 +190,8 @@ index 79916ba..3fe3f6a 100644
 +      return toQuester(http.extend(baseURL === void 0 ? rest : { ...rest, baseUrl: baseURL }), next);
 +    }, "extend"),
 +    isError: Http.Error.is,
-+    file: /* @__PURE__ */ __name(async (url, options = {}) => {
++    file: /* @__PURE__ */ __name(async (_url, options = {}) => {
++      const url = resolveUrl(_url);
 +      const task = await http.ctx.serial(facade, "http/file", url, options);
 +      if (task) return task;
 +      const { headers, data, url: responseUrl } = await request(url, {
@@ -240,10 +241,115 @@ index 79916ba..3fe3f6a 100644
 +  if (endpoint === void 0) questers.set(http, facade);
 +  return facade;
 +}
++// Satori adapters register Koa routes: `ctx.server.post(path, (koa, next) => ...)` reading a parsed
++// `koa.request.body` (raw text under `Symbol.for("unparsedBody")`) and writing `koa.status` /
++// `koa.body`, with koa-router paths and `config.selfUrl`. @cordisjs/plugin-server 1.x passes its own
++// Request and Response, parses nothing, matches path-to-regexp 8 paths and calls it `baseUrl`.
++const kUnparsed = Symbol.for("unparsedBody");
++const koaServers = /* @__PURE__ */ new WeakMap();
++// koa-router paths use path-to-regexp 6 modifiers (adapter-telegram serves `/:file+`); plugin-server
++// compiles path-to-regexp 8, which spells them as wildcards and braces, and has no inline groups.
++const koaPath = /* @__PURE__ */ __name((path) => {
++  if (typeof path !== "string") return path;
++  if (path.includes("(")) return new RegExp(`^${path}$`);
++  return path.replace(/\/:(\w+)([+*?])/g, (_, name, modifier) => modifier === "+" ? `/*${name}` : modifier === "*" ? `{/*${name}}` : `{/:${name}}`);
++}, "koaPath");
++async function toKoaContext(req, res) {
++  const type = req.headers.get("content-type") ?? "";
++  const raw = req.method === "GET" || req.method === "HEAD" ? "" : await req.text();
++  let body = {};
++  if (raw && type.includes("json")) body = JSON.parse(raw);
++  else if (raw && type.includes("x-www-form-urlencoded")) body = Object.fromEntries(new URLSearchParams(raw));
++  else if (raw) body = raw;
++  if (typeof body === "object") Object.defineProperty(body, kUnparsed, { value: raw });
++  const headers = Object.fromEntries(req.headers);
++  const query = Object.fromEntries(req.query);
++  let status, payload;
++  const koa = {
++    req: { method: req.method, url: req.url, headers },
++    method: req.method,
++    path: req.path,
++    url: req.url,
++    query,
++    params: req.params,
++    headers,
++    header: headers,
++    request: {
++      body,
++      method: req.method,
++      path: req.path,
++      url: req.url,
++      query,
++      headers,
++      header: headers,
++      is: /* @__PURE__ */ __name((...types) => types.find((name) => type.includes(name)) ?? false, "is")
++    },
++    response: {
++      get status() { return koa.status; },
++      set status(value) { koa.status = value; },
++      get body() { return koa.body; },
++      set body(value) { koa.body = value; },
++      set type(value) { koa.type = value; }
++    },
++    get status() { return status ?? 404; },
++    set status(value) { status = value; },
++    // adapter-onebot reads the parsed request from `ctx.body` until it writes a response.
++    get body() { return payload ?? body; },
++    set body(value) {
++      payload = value;
++      status ??= 200;
++    },
++    set type(value) { res.headers.set("content-type", value); },
++    get: /* @__PURE__ */ __name((field) => req.headers.get(field) ?? "", "get"),
++    set: /* @__PURE__ */ __name((field, value) => {
++      if (typeof field === "string") return res.headers.set(field, value);
++      for (const [key, item] of Object.entries(field)) res.headers.set(key, item);
++    }, "set")
++  };
++  const flush = /* @__PURE__ */ __name(() => {
++    if (status !== void 0) res.status = status;
++    if (payload === void 0) return;
++    const binary = typeof payload !== "object" || payload === null || ArrayBuffer.isView(payload) || payload instanceof ArrayBuffer || payload instanceof Blob || payload instanceof ReadableStream;
++    if (binary) res.body = payload;
++    else res.json(payload);
++  }, "flush");
++  return [koa, flush];
++}
++function toKoaServer(server) {
++  if (koaServers.has(server)) return koaServers.get(server);
++  const route = /* @__PURE__ */ __name((method) => (path, middleware, options) => server[method](koaPath(path), async (req, res, next) => {
++    const [koa, flush] = await toKoaContext(req, res);
++    let forwarded;
++    await middleware(koa, () => forwarded = next());
++    if (forwarded) return forwarded;
++    flush();
++  }, options), "route");
++  const methods = {
++    ...Object.fromEntries(["all", "get", "delete", "head", "post", "put", "patch"].map((method) => [method, route(method)])),
++    ws: /* @__PURE__ */ __name((path, handle, options) => {
++      const layer = server.ws(koaPath(path), handle && (async (req, accept) => {
++        return handle(await accept(), { method: req.method, url: req.url, headers: Object.fromEntries(req.headers) });
++      }), options);
++      return Object.assign(layer, { close: /* @__PURE__ */ __name(() => layer.dispose(), "close") });
++    }, "ws")
++  };
++  const facade = new Proxy(server, {
++    get(target, prop) {
++      if (typeof prop === "symbol") return Reflect.get(target, prop);
++      if (Object.hasOwn(methods, prop)) return methods[prop];
++      if (prop === "selfUrl") return server.baseUrl;
++      if (prop === "config") return { ...server.config, selfUrl: server.baseUrl };
++      const value = Reflect.get(server, prop);
++      return typeof value === "function" ? value.bind(server) : value;
++    }
++  });
++  koaServers.set(server, facade);
++  return facade;
++}
  import { defineProperty as defineProperty2 } from "cosmokit";
  
  // src/internal.ts
-@@ -121,9 +284,11 @@ var JsonForm;
+@@ -121,9 +390,11 @@ var JsonForm;
  })(JsonForm || (JsonForm = {}));
  
  // src/index.ts
@@ -256,7 +362,7 @@ index 79916ba..3fe3f6a 100644
  export * from "cosmokit";
  import * as Universal from "@satorijs/protocol";
  
-@@ -158,9 +323,8 @@ var Session = class {
+@@ -158,9 +429,8 @@ var Session = class {
      this.event = event;
      this.sn = this.id = ++bot.ctx.satori._sessionSeq;
      defineProperty(this, "bot", bot);
@@ -268,7 +374,7 @@ index 79916ba..3fe3f6a 100644
    }
    /** @deprecated */
    get data() {
-@@ -299,12 +463,12 @@ var Bot = class {
+@@ -299,12 +569,12 @@ var Bot = class {
      this.logger = ctx.logger(adapterName);
      this.platform = adapterName;
      this.features = Object.entries(Methods).filter(([, value]) => this[value.name]).map(([key]) => key);
@@ -283,7 +389,7 @@ index 79916ba..3fe3f6a 100644
      ctx.on("interaction/button", (session) => {
        const cb = this.callbacks[session.event.button.id];
        if (cb) cb(session);
-@@ -317,10 +481,12 @@ var Bot = class {
+@@ -317,10 +587,12 @@ var Bot = class {
      __name(this, "Bot");
    }
    static reusable = true;
@@ -298,7 +404,7 @@ index 79916ba..3fe3f6a 100644
    };
    sn;
    user;
-@@ -414,7 +580,7 @@ var Bot = class {
+@@ -414,7 +686,7 @@ var Bot = class {
      return new Session(this, event);
    }
    dispatch(session) {
@@ -307,7 +413,7 @@ index 79916ba..3fe3f6a 100644
      let events = [session.type];
      for (const aliases of eventAliases) {
        if (aliases.includes(session.type)) {
-@@ -468,7 +634,7 @@ var Bot = class {
+@@ -468,7 +740,7 @@ var Bot = class {
          delete this.ctx.satori._tempStore[id];
        }
      }, "dispose");
@@ -316,7 +422,7 @@ index 79916ba..3fe3f6a 100644
      return ids.map((id) => this.getInternalUrl(`/_tmp/${id}`));
    }
    async supports(name, session = {}) {
-@@ -530,7 +696,7 @@ defineAccessor(Bot.prototype, "userId", ["user", "id"]);
+@@ -530,7 +802,7 @@ defineAccessor(Bot.prototype, "userId", ["user", "id"]);
  // src/adapter.ts
  import { remove as remove2, Time } from "cosmokit";
  import { Status as Status2 } from "@satorijs/protocol";
@@ -325,7 +431,7 @@ index 79916ba..3fe3f6a 100644
  var Adapter = class {
    constructor(ctx) {
      this.ctx = ctx;
-@@ -548,10 +714,15 @@ var Adapter = class {
+@@ -548,10 +820,15 @@ var Adapter = class {
    fork(ctx, bot) {
      bot.adapter = this;
      this.bots.push(bot);
@@ -342,7 +448,7 @@ index 79916ba..3fe3f6a 100644
  };
  ((Adapter2) => {
    Adapter2.WsClientConfig = z.object({
-@@ -614,7 +785,8 @@ var Adapter = class {
+@@ -614,7 +891,8 @@ var Adapter = class {
          socket.addEventListener("open", () => {
            retryCount = 0;
            this.socket = socket;
@@ -352,7 +458,7 @@ index 79916ba..3fe3f6a 100644
            this.accept(socket);
          });
        }, "connect");
-@@ -724,7 +896,7 @@ var MessageEncoder = class {
+@@ -724,7 +1002,7 @@ var MessageEncoder = class {
  
  // src/index.ts
  h3.warn = new Logger2("element").warn;
@@ -361,7 +467,7 @@ index 79916ba..3fe3f6a 100644
    return z2.object({
      endpoint: z2.string().role("link").description("要连接的服务器地址。").default(typeof endpoint === "string" ? endpoint : void 0).required(typeof endpoint === "boolean" ? endpoint : false),
      headers: z2.dict(String).role("table").description("要附加的额外请求头。"),
-@@ -737,7 +909,7 @@ var SatoriContext = class extends Context4 {
+@@ -737,7 +1015,7 @@ var SatoriContext = class extends Context4 {
    }
    constructor(config) {
      super(config);
@@ -370,7 +476,7 @@ index 79916ba..3fe3f6a 100644
      this.plugin(Satori);
    }
  };
-@@ -799,7 +971,24 @@ var Satori = class extends Service4 {
+@@ -799,7 +1077,37 @@ var Satori = class extends Service4 {
    _loginSeq = 0;
    _sessionSeq = 0;
    constructor(ctx) {
@@ -387,16 +493,29 @@ index 79916ba..3fe3f6a 100644
 +        dispose();
 +      };
 +    });
-+    // Prepended so a host's own global lookup cannot hand an adapter the raw client first.
++    // Adapters were written for Koishi 4, which never enforced inject: adapter-onebot calls
++    // `bot.ctx.setTimeout` without injecting `timer`, so their lookups never throw here. Prepended so
++    // a host's own global lookup cannot hand an adapter the raw services first.
 +    ctx.on("internal/get", (target, name, error, next) => {
-+      if (name === "http") return isSatoriFiber(target.fiber) ? toQuester(next()) : next();
-+      if (isOptional(target.fiber, name)) return target.get(name);
-+      return next();
++      return isSatoriFiber(target.fiber) || isOptional(target.fiber, name) ? target.get(name) : next();
 +    }, { prepend: true });
++    // `ctx.get(name)` skips internal/get, and adapter-telegram reads `ctx.get("server")`.
++    const reflect = ctx.reflect.constructor.prototype;
++    if (!Object.hasOwn(reflect, kOptional)) {
++      Object.defineProperty(reflect, kOptional, { value: true });
++      const get = reflect.get;
++      reflect.get = function(name, strict) {
++        const value = get.call(this, name, strict);
++        if (value === void 0 || !isSatoriFiber(this.ctx.fiber)) return value;
++        if (name === "http") return toQuester(value);
++        if (name === "server") return toKoaServer(value);
++        return value;
++      };
++    }
      ctx.mixin("satori", ["bots", "component"]);
      defineProperty2(this.bots, Service4.tracker, {});
      const self = this;
-@@ -871,6 +1060,8 @@ var Satori = class extends Service4 {
+@@ -871,6 +1179,8 @@ var Satori = class extends Service4 {
        const result = await component(attrs, children, session);
        return session.transform(h3.normalize(result));
      }, "render");
@@ -405,7 +524,7 @@ index 79916ba..3fe3f6a 100644
      return this.ctx.set("component:" + name, render);
    }
    defineInternalRoute(path, callback) {
-@@ -900,13 +1091,14 @@ export {
+@@ -900,13 +1210,14 @@ export {
    Bot,
    SatoriContext as Context,
    h3 as Element,

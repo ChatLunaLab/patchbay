@@ -1,0 +1,53 @@
+{
+  "patches": [
+    {
+      "name": "@cordisjs/plugin-cli-cordis",
+      "version": "1.0.5",
+      "description": "Stable root include id, launcher include overrides and IPC health pings"
+    },
+    {
+      "name": "@cordisjs/plugin-database",
+      "version": "4.1.1",
+      "description": "Prepare tables extended while the driver was still starting; also installed as minato"
+    },
+    {
+      "name": "@cordisjs/plugin-http",
+      "version": "1.5.2",
+      "description": "Use resolveIntercept, which Cordis 4 renamed from resolveConfig"
+    },
+    {
+      "name": "@cordisjs/plugin-loader",
+      "version": "1.0.0-rc.9",
+      "description": "Load prelude entries first and plugins one at a time"
+    },
+    {
+      "name": "@cordisjs/plugin-server",
+      "version": "1.7.0",
+      "description": "Use resolveIntercept, which Cordis 4 renamed from resolveConfig"
+    },
+    {
+      "name": "@cordisjs/unyaml",
+      "version": "2.0.3",
+      "description": "Register the Vite YAML plugin through rolldownOptions instead of the retired esbuildOptions"
+    },
+    {
+      "name": "@koishijs/core",
+      "version": "4.18.11",
+      "description": "Run Koishi on Cordis 4; also installed as koishi"
+    },
+    {
+      "name": "@satorijs/core",
+      "version": "4.6.1",
+      "description": "Run Satori on Cordis 4"
+    },
+    {
+      "name": "koishi-plugin-adapter-onebot",
+      "version": "6.9.5",
+      "description": "Import Satori directly and inject http, satori and timer"
+    }
+  ],
+  "aliases": {
+    "koishi": "@koishijs/core",
+    "minato": "@cordisjs/plugin-database"
+  }
+}

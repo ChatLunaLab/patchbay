@@ -1,0 +1,194 @@
+diff --git a/lib/bot/base.d.ts b/lib/bot/base.d.ts
+index 1d9a656..da138a1 100644
+--- a/lib/bot/base.d.ts
++++ b/lib/bot/base.d.ts
+@@ -1,4 +1,4 @@
+-import { Bot, Context, Schema, Universal } from 'koishi';
++import { Bot, Context, Schema, Universal } from '@satorijs/core';
+ import * as OneBot from '../utils';
+ import { OneBotMessageEncoder } from './message';
+ export declare class BaseBot<C extends Context = Context, T extends BaseBot.Config = BaseBot.Config> extends Bot<C, T> {
+diff --git a/lib/bot/cqcode.d.ts b/lib/bot/cqcode.d.ts
+index 23233d5..3347907 100644
+--- a/lib/bot/cqcode.d.ts
++++ b/lib/bot/cqcode.d.ts
+@@ -1,4 +1,4 @@
+-import { Dict, h } from 'koishi';
++import { Dict, h } from '@satorijs/core';
+ export declare function CQCode(type: string, attrs: Dict<string>): string;
+ export interface CQCode {
+     type: string;
+diff --git a/lib/bot/index.d.ts b/lib/bot/index.d.ts
+index c28ed8b..ea4d60c 100644
+--- a/lib/bot/index.d.ts
++++ b/lib/bot/index.d.ts
+@@ -1,4 +1,4 @@
+-import { Context, Schema, Session, Universal } from 'koishi';
++import { Context, Schema, Session, Universal } from '@satorijs/core';
+ import { HttpServer } from '../http';
+ import { WsClient, WsServer } from '../ws';
+ import { QQGuildBot } from './qqguild';
+diff --git a/lib/bot/message.d.ts b/lib/bot/message.d.ts
+index 6272232..6c33411 100644
+--- a/lib/bot/message.d.ts
++++ b/lib/bot/message.d.ts
+@@ -1,4 +1,4 @@
+-import { Context, h, MessageEncoder, Universal } from 'koishi';
++import { Context, h, MessageEncoder, Universal } from '@satorijs/core';
+ import { BaseBot } from './base';
+ import { CQCode } from './cqcode';
+ export interface Author extends Universal.User {
+diff --git a/lib/bot/qqguild.d.ts b/lib/bot/qqguild.d.ts
+index 4799f1c..c8d5b27 100644
+--- a/lib/bot/qqguild.d.ts
++++ b/lib/bot/qqguild.d.ts
+@@ -1,4 +1,4 @@
+-import { Context, Universal } from 'koishi';
++import { Context, Universal } from '@satorijs/core';
+ import { BaseBot } from './base';
+ import { OneBotBot } from '.';
+ import * as OneBot from '../utils';
+diff --git a/lib/http.d.ts b/lib/http.d.ts
+index fa25003..dad0b2d 100644
+--- a/lib/http.d.ts
++++ b/lib/http.d.ts
+@@ -1,4 +1,4 @@
+-import { Adapter, Context, HTTP, Schema } from 'koishi';
++import { Adapter, Context, HTTP, Schema } from '@satorijs/core';
+ import { OneBotBot } from './bot';
+ export declare class HttpServer<C extends Context = Context> extends Adapter<C, OneBotBot<C>> {
+     static inject: string[];
+diff --git a/lib/index.d.ts b/lib/index.d.ts
+index 120885c..d5ba237 100644
+--- a/lib/index.d.ts
++++ b/lib/index.d.ts
+@@ -1,4 +1,4 @@
+-import { Session } from 'koishi';
++import { Session } from '@satorijs/core';
+ import { OneBotBot } from './bot';
+ import * as OneBot from './utils';
+ export { OneBot };
+@@ -12,7 +12,7 @@ declare module '@satorijs/core' {
+         subsubtype?: string;
+     }
+ }
+-declare module 'koishi' {
++declare module '@satorijs/core' {
+     interface Events {
+         'onebot/message-reactions-updated'(session: Session): void;
+         'onebot/channel-updated'(session: Session): void;
+diff --git a/lib/index.js b/lib/index.js
+index 996a9c8..5b58e18 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -46,10 +46,10 @@ __export(index_exports, {
+ module.exports = __toCommonJS(index_exports);
+ 
+ // src/bot/index.ts
+-var import_koishi8 = require("koishi");
++var import_koishi8 = require("@satorijs/core");
+ 
+ // src/http.ts
+-var import_koishi3 = require("koishi");
++var import_koishi3 = require("@satorijs/core");
+ 
+ // src/utils.ts
+ var utils_exports = {};
+@@ -67,11 +67,11 @@ __export(utils_exports, {
+   decodeUser: () => decodeUser,
+   dispatchSession: () => dispatchSession
+ });
+-var import_koishi2 = require("koishi");
++var import_koishi2 = require("@satorijs/core");
+ var qface = __toESM(require("qface"));
+ 
+ // src/types.ts
+-var import_koishi = require("koishi");
++var import_koishi = require("@satorijs/core");
+ var SafetyLevel = /* @__PURE__ */ ((SafetyLevel2) => {
+   SafetyLevel2[SafetyLevel2["safe"] = 0] = "safe";
+   SafetyLevel2[SafetyLevel2["unknown"] = 1] = "unknown";
+@@ -594,7 +594,7 @@ var HttpServer = class extends import_koishi3.Adapter {
+ })(HttpServer || (HttpServer = {}));
+ 
+ // src/ws.ts
+-var import_koishi4 = require("koishi");
++var import_koishi4 = require("@satorijs/core");
+ var WsClient = class extends import_koishi4.Adapter.WsClient {
+   static {
+     __name(this, "WsClient");
+@@ -734,10 +734,10 @@ function accept(socket, bot) {
+ __name(accept, "accept");
+ 
+ // src/bot/base.ts
+-var import_koishi6 = require("koishi");
++var import_koishi6 = require("@satorijs/core");
+ 
+ // src/bot/message.ts
+-var import_koishi5 = require("koishi");
++var import_koishi5 = require("@satorijs/core");
+ var import_node_url = require("node:url");
+ var State = class {
+   constructor(type) {
+@@ -830,7 +830,7 @@ var OneBotMessageEncoder = class extends import_koishi5.MessageEncoder {
+   }
+   async sendFile(attrs) {
+     const src = attrs.src || attrs.url;
+-    const name = attrs.title || (await this.bot.ctx.http.file(src)).filename;
++    const name = attrs.filename || attrs.name || attrs.title || (await this.bot.ctx.http.file(src)).filename;
+     const file = src.startsWith("file:") ? (0, import_node_url.fileURLToPath)(src) : await this.bot.internal.downloadFile(src);
+     if (this.session.event.channel.type === import_koishi5.Universal.Channel.Type.DIRECT) {
+       await this.bot.internal.uploadPrivateFile(
+@@ -977,7 +977,7 @@ var BaseBot2 = class extends import_koishi6.Bot {
+     __name(this, "BaseBot");
+   }
+   static MessageEncoder = OneBotMessageEncoder;
+-  static inject = ["http"];
++  static inject = ["http", "satori", "timer"];
+   parent;
+   internal;
+   async createDirectChannel(userId) {
+@@ -1112,7 +1112,7 @@ var QQGuildBot = class extends BaseBot2 {
+ };
+ 
+ // src/bot/cqcode.ts
+-var import_koishi7 = require("koishi");
++var import_koishi7 = require("@satorijs/core");
+ function CQCode(type, attrs) {
+   if (type === "text") return attrs.content;
+   let output = "[CQ:" + type;
+diff --git a/lib/types.d.ts b/lib/types.d.ts
+index fc0546b..d0a5cc5 100644
+--- a/lib/types.d.ts
++++ b/lib/types.d.ts
+@@ -1,4 +1,4 @@
+-import { Dict } from 'koishi';
++import { Dict } from '@satorijs/core';
+ import { BaseBot, CQCode } from './bot';
+ export interface Response {
+     status: string;
+diff --git a/lib/utils.d.ts b/lib/utils.d.ts
+index 078165b..77b0d93 100644
+--- a/lib/utils.d.ts
++++ b/lib/utils.d.ts
+@@ -1,4 +1,4 @@
+-import { Context, Universal } from 'koishi';
++import { Context, Universal } from '@satorijs/core';
+ import { BaseBot } from './bot';
+ import * as OneBot from './types';
+ export * from './types';
+diff --git a/lib/ws.d.ts b/lib/ws.d.ts
+index 666be9e..fce4d30 100644
+--- a/lib/ws.d.ts
++++ b/lib/ws.d.ts
+@@ -1,5 +1,8 @@
+-import { Adapter, Context, HTTP, Logger, Schema, Universal } from 'koishi';
+-import { WebSocketLayer } from '@koishijs/plugin-server';
++import { Adapter, Context, HTTP, Logger, Schema, Universal } from '@satorijs/core';
++// Inline the equivalent type: @koishijs/plugin-server is not installed in this repository.
++interface WebSocketLayer {
++    accepts?: string[];
++}
+ import { OneBotBot } from './bot';
+ interface SharedConfig<T = 'ws' | 'ws-reverse'> {
+     protocol: T;

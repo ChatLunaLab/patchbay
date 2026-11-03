@@ -1,0 +1,305 @@
+diff --git a/lib/index.d.ts b/lib/index.d.ts
+index 642da25..b39b250 100644
+--- a/lib/index.d.ts
++++ b/lib/index.d.ts
+@@ -1,8 +1,9 @@
+-import { Context, Service, z, Logger } from 'cordis';
++import { Context, Service, Logger } from 'cordis';
++import { default as z } from 'schemastery';
+ import { Message, SendOptions, Event, GuildMember, User, Meta, Response, Login, Methods, Status, Upload, WebSocket } from '@satorijs/protocol';
+ import h from '@satorijs/element';
+ import { Awaitable, Dict } from 'cosmokit';
+-import { HTTP } from '@cordisjs/plugin-http';
++import { Http, Http as HTTP } from '@cordisjs/plugin-http';
+ import { Key } from 'path-to-regexp';
+ export abstract class MessageEncoder<C extends Context = Context, B extends Bot<C> = Bot<C>> {
+     bot: B;
+@@ -49,7 +50,7 @@ export class Session<C extends Context = Context> {
+     id: number;
+     sn: number;
+     bot: Bot<C>;
+-    app: C['root'];
++    app: C[typeof Context.root];
+     event: Event;
+     locales: string[];
+     constructor(bot: Bot<C>, event: Partial<Event>);
+@@ -73,7 +74,7 @@ export class Session<C extends Context = Context> {
+ }
+ export function defineAccessor(prototype: {}, name: string, keys: string[]): void;
+ export type { Fragment, Render } from '@satorijs/element';
+-export { h, h as Element, h as segment, HTTP, HTTP as Quester };
++export { h, h as Element, h as segment, Http, Http as HTTP, Http as Quester };
+ export * from 'cordis';
+ export * from 'cosmokit';
+ export * as Universal from '@satorijs/protocol';
+@@ -129,7 +130,7 @@ declare module 'cordis' {
+ }
+ declare module '@cordisjs/plugin-http' {
+     namespace HTTP {
+-        function createConfig(this: typeof HTTP, endpoint?: string | boolean): z<Config>;
++        function createConfig(this: typeof Http, endpoint?: string | boolean): z<Config>;
+     }
+ }
+ export type Component<S extends Session = Session> = h.Render<Awaitable<h.Fragment>, S>;
+@@ -138,7 +139,7 @@ export namespace Component {
+         session?: boolean;
+     }
+ }
+-export type GetSession<C extends Context> = C[typeof Context.session];
++export type GetSession<C extends Context> = Session;
+ declare class SatoriContext extends Context {
+     constructor(config?: any);
+ }
+@@ -152,7 +153,7 @@ declare class DisposableSet<T> {
+     add(...values: T[]): () => void;
+     [Symbol.iterator](): SetIterator<T>;
+ }
+-export class Satori<C extends Context = Context> extends Service<unknown, C> {
++export class Satori<C extends Context = Context> extends Service {
+     static [Service.provide]: string;
+     static [Service.immediate]: boolean;
+     uid: string;
+@@ -222,6 +223,7 @@ export abstract class Bot<C extends Context = Context, T = any> {
+     config: T;
+     adapterName: string;
+     static reusable: boolean;
++    static inject: string[];
+     static MessageEncoder?: new (bot: Bot, channelId: string, referrer?: any, options?: SendOptions) => MessageEncoder;
+     [Service.tracker]: {
+         associate: string;
+diff --git a/lib/index.mjs b/lib/index.mjs
+index 79916ba..c1f567d 100644
+--- a/lib/index.mjs
++++ b/lib/index.mjs
+@@ -2,7 +2,34 @@ var __defProp = Object.defineProperty;
+ var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
+ 
+ // src/index.ts
+-import { Context as Context4, Logger as Logger2, Service as Service4, z as z2 } from "cordis";
++import { Context as Context4, Service as Service4, getTraceable } from "cordis";
++import Schema4 from "schemastery";
++// Module-level loggers lack a Context; forward to the host target or console until upstream supports Cordis 4.
++class SatoriLoggerShim {
++  static target = null;
++  #name;
++  constructor(name) { this.#name = name; }
++  _log(level, ...args) {
++    if (SatoriLoggerShim.target) SatoriLoggerShim.target({ level, name: this.#name, args });
++    else if (level === "error") console.error(`[${this.#name}]`, ...args);
++    else if (level === "warn") console.warn(`[${this.#name}]`, ...args);
++    else console.log(`[${this.#name}]`, ...args);
++  }
++  debug(...args) { this._log("debug", ...args); }
++  info(...args) { this._log("info", ...args); }
++  warn(...args) { this._log("warn", ...args); }
++  error(...args) { this._log("error", ...args); }
++}
++const Logger2 = SatoriLoggerShim;
++const z2 = Schema4;
++// Cordis 4 has no ready event; use the fiber state transition.
++function onReady(ctx, cb) {
++  if (ctx.fiber.state === 2) { setTimeout(cb, 0); return () => {}; }
++  const off = ctx.on("internal/status", (fiber) => {
++    if (fiber === ctx.fiber && fiber.state === 2) { off(); Promise.resolve().then(cb); }
++  });
++  return off;
++}
+ import { defineProperty as defineProperty2 } from "cosmokit";
+ 
+ // src/internal.ts
+@@ -121,9 +148,11 @@ var JsonForm;
+ })(JsonForm || (JsonForm = {}));
+ 
+ // src/index.ts
+-import { HTTP } from "@cordisjs/plugin-http";
++import { Http } from "@cordisjs/plugin-http";
+ import h3 from "@satorijs/element";
+ export * from "cordis";
++// Restore the removed Schema/z exports from Schemastery.
++export { Schema4 as Schema, Schema4 as z, SatoriLoggerShim as Logger };
+ export * from "cosmokit";
+ import * as Universal from "@satorijs/protocol";
+ 
+@@ -158,9 +187,8 @@ var Session = class {
+     this.event = event;
+     this.sn = this.id = ++bot.ctx.satori._sessionSeq;
+     defineProperty(this, "bot", bot);
+-    defineProperty(this, "app", bot.ctx.root);
+-    defineProperty(this, Context.current, bot.ctx);
+-    return Context.associate(this, "session");
++    defineProperty(this, "app", bot.ctx[Context4.root]);
++    return getTraceable(bot.ctx, this);
+   }
+   /** @deprecated */
+   get data() {
+@@ -299,12 +327,12 @@ var Bot = class {
+     this.logger = ctx.logger(adapterName);
+     this.platform = adapterName;
+     this.features = Object.entries(Methods).filter(([, value]) => this[value.name]).map(([key]) => key);
+-    ctx.on("ready", async () => {
++    onReady(ctx, async () => {
+       await Promise.resolve();
+       this.dispatchLoginEvent("login-added");
+       return this.start();
+     });
+-    ctx.on("dispose", () => this.dispose());
++    ctx.effect(() => () => this.dispose());
+     ctx.on("interaction/button", (session) => {
+       const cb = this.callbacks[session.event.button.id];
+       if (cb) cb(session);
+@@ -317,6 +345,7 @@ var Bot = class {
+     __name(this, "Bot");
+   }
+   static reusable = true;
++  static inject = ["satori"];
+   static MessageEncoder;
+   [Service3.tracker] = {
+     associate: "bot",
+@@ -414,7 +443,7 @@ var Bot = class {
+     return new Session(this, event);
+   }
+   dispatch(session) {
+-    if (!this.ctx.lifecycle.isActive) return;
++    if (this.ctx.fiber.state >= 4) return;
+     let events = [session.type];
+     for (const aliases of eventAliases) {
+       if (aliases.includes(session.type)) {
+@@ -468,7 +497,7 @@ var Bot = class {
+         delete this.ctx.satori._tempStore[id];
+       }
+     }, "dispose");
+-    const _dispose = this.ctx.on("dispose", dispose);
++    const _dispose = this.ctx.effect(() => dispose);
+     return ids.map((id) => this.getInternalUrl(`/_tmp/${id}`));
+   }
+   async supports(name, session = {}) {
+@@ -530,7 +559,7 @@ defineAccessor(Bot.prototype, "userId", ["user", "id"]);
+ // src/adapter.ts
+ import { remove as remove2, Time } from "cosmokit";
+ import { Status as Status2 } from "@satorijs/protocol";
+-import { z } from "cordis";
++import { default as z } from "schemastery";
+ var Adapter = class {
+   constructor(ctx) {
+     this.ctx = ctx;
+@@ -548,10 +577,15 @@ var Adapter = class {
+   fork(ctx, bot) {
+     bot.adapter = this;
+     this.bots.push(bot);
+-    ctx.on("dispose", () => {
++    ctx.effect(() => () => {
+       remove2(this.bots, bot);
+     });
+   }
++  // Cordis 4 never calls `fork`; fork the bot this adapter was mounted with once it is constructed.
++  [Symbol.for("cordis.init")]() {
++    const bot = this.ctx.fiber.config;
++    if (bot instanceof Bot && !this.bots.includes(bot)) return this.fork(this.ctx, bot);
++  }
+ };
+ ((Adapter2) => {
+   Adapter2.WsClientConfig = z.object({
+@@ -614,7 +648,8 @@ var Adapter = class {
+         socket.addEventListener("open", () => {
+           retryCount = 0;
+           this.socket = socket;
+-          logger.info("connect to server: %c", url);
++          // Use %C under Cordis 4: %c consumes the value without rendering it.
++          logger.info("connect to server: %C", url);
+           this.accept(socket);
+         });
+       }, "connect");
+@@ -724,7 +759,7 @@ var MessageEncoder = class {
+ 
+ // src/index.ts
+ h3.warn = new Logger2("element").warn;
+-HTTP.createConfig = /* @__PURE__ */ __name(function createConfig(endpoint) {
++Http.createConfig = /* @__PURE__ */ __name(function createConfig(endpoint) {
+   return z2.object({
+     endpoint: z2.string().role("link").description("要连接的服务器地址。").default(typeof endpoint === "string" ? endpoint : void 0).required(typeof endpoint === "boolean" ? endpoint : false),
+     headers: z2.dict(String).role("table").description("要附加的额外请求头。"),
+@@ -737,7 +772,7 @@ var SatoriContext = class extends Context4 {
+   }
+   constructor(config) {
+     super(config);
+-    this.provide("satori", void 0, true);
++    // The Service constructor registers itself; pre-providing would conflict.
+     this.plugin(Satori);
+   }
+ };
+@@ -799,7 +834,7 @@ var Satori = class extends Service4 {
+   _loginSeq = 0;
+   _sessionSeq = 0;
+   constructor(ctx) {
+-    super(ctx);
++    super(ctx, "satori");
+     ctx.mixin("satori", ["bots", "component"]);
+     defineProperty2(this.bots, Service4.tracker, {});
+     const self = this;
+@@ -871,6 +906,8 @@ var Satori = class extends Service4 {
+       const result = await component(attrs, children, session);
+       return session.transform(h3.normalize(result));
+     }, "render");
++    // Cordis 4 `set` requires a declared property; provide it first, fiber-bound.
++    this.ctx.provide("component:" + name, render);
+     return this.ctx.set("component:" + name, render);
+   }
+   defineInternalRoute(path, callback) {
+@@ -900,13 +937,14 @@ export {
+   Bot,
+   SatoriContext as Context,
+   h3 as Element,
+-  HTTP,
++  Http,
++  Http as HTTP,
+   InternalRouter,
+   JsonForm,
+   MessageEncoder,
+   MessageEncoder as Messenger,
+   MessageEncoder as Modulator,
+-  HTTP as Quester,
++  Http as Quester,
+   Satori,
+   Session,
+   Universal,
+diff --git a/package.json b/package.json
+index d3af7e0..d609a16 100644
+--- a/package.json
++++ b/package.json
+@@ -3,13 +3,13 @@
+   "description": "Core components of Satorijs",
+   "version": "4.6.1",
+   "type": "module",
+-  "main": "lib/index.cjs",
++  "main": "lib/index.mjs",
+   "module": "lib/index.mjs",
+   "types": "lib/index.d.ts",
+   "exports": {
+     ".": {
+       "types": "./lib/index.d.ts",
+-      "require": "./lib/index.cjs",
++      "require": "./lib/index.mjs",
+       "import": "./lib/index.mjs"
+     },
+     "./src/*": "./src/*",
+@@ -54,14 +54,15 @@
+     }
+   },
+   "peerDependencies": {
+-    "cordis": "^3.18.1"
++    "cordis": "^4.0.0-rc.7",
++    "@cordisjs/plugin-http": "^1.5.1"
+   },
+   "dependencies": {
+-    "@cordisjs/plugin-http": "^0.6.3",
+     "@satorijs/element": "^3.2.0",
+     "@satorijs/protocol": "^1.7.0",
+-    "cordis": "^3.18.1",
++    "cordis": "^4.0.0-rc.8",
+     "cosmokit": "^1.8.1",
+-    "path-to-regexp": "^8.2.0"
++    "path-to-regexp": "^8.2.0",
++    "schemastery": "^3.18.0"
+   }
+ }
+\ No newline at end of file

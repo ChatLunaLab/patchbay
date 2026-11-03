@@ -1,0 +1,15 @@
+diff --git a/lib/index.js b/lib/index.js
+index 47b64a6..46865f0 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -985,6 +985,10 @@ var Database = class _Database extends Service {
+   migrateTasks = /* @__PURE__ */ Object.create(null);
+   constructor(ctx) {
+     super(ctx, "model");
++    // chatluna: `database` resolves only after the driver fiber is active, so tables extended while it started were skipped; prepare them now.
++    ctx.on("internal/service", (name) => {
++      if (name === "database") this.refresh();
++    });
+   }
+   refresh() {
+     for (const name in this.tables) {

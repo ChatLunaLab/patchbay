@@ -1,0 +1,22 @@
+diff --git a/lib/index.js b/lib/index.js
+index 4ff0ca1..4886ec6 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -210,7 +210,7 @@ var Route = class {
+     this.server = server;
+     this.path = path;
+     this.options = options;
+-    this.config = server[Server.resolveConfig]();
++    this.config = server[Server.resolveIntercept]();
+     this.fiber = server.ctx.fiber;
+     const paths = [path];
+     if (this.config.path) paths.unshift(this.config.path);
+@@ -462,7 +462,7 @@ var Server = class _Server extends Service2 {
+     yield () => this.ctx.logger?.info(`server closing at %C`, `http://${this.host}:${this.port}`);
+   }
+   get baseUrl() {
+-    const intercept = this[Service2.resolveConfig]();
++    const intercept = this[Service2.resolveIntercept]();
+     const pathPrefix = intercept.path ?? "";
+     if (this.config.baseUrl) return this.config.baseUrl + pathPrefix;
+     const wildcard = ["0.0.0.0", "::"];

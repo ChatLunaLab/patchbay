@@ -1,0 +1,13 @@
+diff --git a/lib/index.js b/lib/index.js
+index 3acbdff..56c9913 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -202,7 +202,7 @@ var Http = class _Http extends Service {
+     });
+   }
+   resolveConfig(init) {
+-    return this[Service.resolveConfig](this.config, init);
++    return { ...this[Service.resolveIntercept](), ...this.config, ...init };
+   }
+   resolveURL(url, config, isWebSocket = false) {
+     try {

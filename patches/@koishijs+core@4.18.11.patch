@@ -1,0 +1,1118 @@
+diff --git a/lib/index.d.ts b/lib/index.d.ts
+index b0e0826..004cff1 100644
+--- a/lib/index.d.ts
++++ b/lib/index.d.ts
+@@ -1,17 +1,15 @@
+ import * as utils from '@koishijs/utils';
+-import * as minato from 'minato';
++import * as minato from '@cordisjs/plugin-database';
+ import * as satori from '@satorijs/core';
+ import * as cordis from 'cordis';
+ import { Dict, Awaitable, Promisify } from 'cosmokit';
+-import { Driver, FlatKeys, FlatPick, Update, Eval } from 'minato';
++import { Driver, FlatKeys, FlatPick, Update, Eval } from '@cordisjs/plugin-database';
+ import { Fragment, EventOptions, Hook, h, Schema, Universal, Bot, HTTP } from '@satorijs/core';
+ import { LocaleTree } from '@koishijs/i18n-utils';
+ import { Disposable, GetEvents, Parameters, ReturnType, ThisType } from 'cordis';
+ import { version } from '../package';
+ export interface Context {
+-    [minato.Types]: Types;
+-    [minato.Tables]: Tables;
+-    [Context.Database]: Context.Database<this>;
++    database: KoishiDatabase & minato.Database<Tables, Types, Context>;
+     broadcast(content: Fragment, forced?: boolean): Promise<string[]>;
+     broadcast(channels: readonly string[], content: Fragment, forced?: boolean): Promise<string[]>;
+ }
+@@ -76,7 +74,7 @@ export namespace Channel {
+     type Field = keyof Channel;
+     type Observed<K extends Field = Field> = utils.Observed<Pick<Channel, K>, Promise<void>>;
+ }
+-declare interface KoishiDatabase extends minato.Database<Tables, Types, Context> {
++declare interface KoishiDatabase {
+ }
+ declare class KoishiDatabase {
+     ctx: Context;
+@@ -103,13 +101,13 @@ export interface Context {
+     }): () => boolean;
+ }
+ export interface Events {
+-    'before-attach-channel'(session: Session, fields: Set<Channel.Field>): void;
+-    'attach-channel'(session: Session): Awaitable<void | boolean>;
+-    'before-attach-user'(session: Session, fields: Set<User.Field>): void;
+-    'attach-user'(session: Session): Awaitable<void | boolean>;
+-    'before-attach'(session: Session): void;
+-    'attach'(session: Session): void;
+-    'middleware'(session: Session): void;
++    'before-attach-channel'(session: satori.Session, fields: Set<Channel.Field>): void;
++    'attach-channel'(session: satori.Session): Awaitable<void | boolean>;
++    'before-attach-user'(session: satori.Session, fields: Set<User.Field>): void;
++    'attach-user'(session: satori.Session): Awaitable<void | boolean>;
++    'before-attach'(session: satori.Session): void;
++    'attach'(session: satori.Session): void;
++    'middleware'(session: satori.Session): void;
+ }
+ export class SessionError extends Error {
+     path: string | string[];
+@@ -219,7 +217,9 @@ export namespace I18n {
+     const Config: Schema<Config>;
+ }
+ export interface Context {
+-    permissions: Permissions;
++    // chatluna: `permissions` is provided by @chatluna/permission and typed by
++    // its own cordis augmentation; koishi's Permissions class does not run.
++    permissions: any;
+ }
+ export interface Events {
+     'internal/permission'(): void;
+@@ -470,6 +470,10 @@ export namespace Command {
+         handleError?: boolean | ((error: Error, argv: Argv) => Awaitable<void | Fragment>);
+         /** enable slash command */
+         slash?: boolean;
++        /** exclude the command from listings; plugins like help read this */
++        hidden?: boolean;
++        /** chatluna: plugin or module that registered the command */
++        owner?: string;
+     }
+     const Config: Schema<Config>;
+ }
+@@ -479,7 +483,7 @@ export interface Context {
+     command<D extends string>(def: D, desc: string, config?: Command.Config): Command<never, never, Argv.ArgumentType<D>>;
+ }
+ export interface Events {
+-    'before-parse'(content: string, session: Session): Argv;
++    'before-parse'(content: string, session: satori.Session): Argv;
+     'command-added'(command: Command): void;
+     'command-updated'(command: Command): void;
+     'command-removed'(command: Command): void;
+@@ -680,6 +684,39 @@ declare module '@satorijs/core' {
+     interface Events {
+         'internal/schema'(name: string): void;
+     }
++    // chatluna: upstream declares the session extension members on koishi's own
++    // Session interface; ChatLuna types sessions as satori.Session, so merge the
++    // members here. Parameter types are widened to `any` where the koishi
++    // interface binds session generics: both directions must stay assignable
++    // under strictFunctionTypes + exactOptionalPropertyTypes.
++    interface Session {
++        argv?: Argv<any, any>;
++        user?: User.Observed<any>;
++        channel?: Channel.Observed<any>;
++        guild?: Channel.Observed<any>;
++        permissions: string[];
++        scope?: string;
++        response?: () => Promise<Fragment>;
++        resolve<T, R extends any[]>(source: T | Eval.Expr | ((session: any, ...args: R) => T), ...args: R): T extends Eval.Expr ? Eval<T> : T extends (...args: any[]) => any ? ReturnType<T> : T;
++        stripped: Stripped;
++        username: string;
++        send(fragment: Fragment, options?: Universal.SendOptions): Promise<string[]>;
++        cancelQueued(delay?: number): void;
++        sendQueued(content: Fragment, delay?: number): Promise<string[]>;
++        getChannel(...args: any[]): Promise<any>;
++        observeChannel(fields?: Iterable<Channel.Field>): Promise<any>;
++        getUser(...args: any[]): Promise<any>;
++        observeUser(fields?: Iterable<User.Field>): Promise<any>;
++        withScope(scope: string, callback: () => any): Promise<any>;
++        resolveScope(path: string): string;
++        text(path: string | string[], params?: object): string;
++        i18n(path: string | string[], params?: object): h[];
++        collect(...args: any[]): Set<any>;
++        execute(content: string | Argv<any, any>, next?: any): Promise<h[]>;
++        middleware(middleware: any): () => boolean;
++        prompt(...args: any[]): Promise<any>;
++        suggest(options: SuggestOptions): Promise<string>;
++    }
+ }
+ export class SchemaService {
+     ctx: Context;
+@@ -689,19 +726,83 @@ export class SchemaService {
+     get(name: string): Schema;
+     set(name: string, schema: Schema): void;
+ }
+-export type EffectScope = cordis.EffectScope<Context>;
+-export type ForkScope = cordis.ForkScope<Context>;
+-export type MainScope = cordis.MainScope<Context>;
++export type EffectScope = Context;
++export type ForkScope = Context;
++export type MainScope = Context;
+ export { Adapter, Bot, Element, h, HTTP, Logger, MessageEncoder, Messenger, Quester, Schema, segment, Universal, z } from '@satorijs/core';
+ export type { Component, Fragment, Render } from '@satorijs/core';
+ export { resolveConfig } from 'cordis';
+-export type { Disposable, ScopeStatus, Plugin } from 'cordis';
++export type { Disposable, Plugin } from 'cordis';
+ declare module 'cordis' {
+     namespace Plugin {
+         interface Object {
+             filter?: boolean;
+         }
+     }
++    // chatluna: koishi's accessor members are declared on its own Context
++    // interface upstream; ChatLuna code types contexts as cordis.Context, so
++    // mirror the members here.
++    interface Context {
++        koishi: Koishi;
++        database: KoishiDatabase & minato.Database;
++        broadcast(content: Fragment, forced?: boolean): Promise<string[]>;
++        broadcast(channels: readonly string[], content: Fragment, forced?: boolean): Promise<string[]>;
++        $processor: Processor;
++        middleware(middleware: (session: any, next: Next) => Awaitable<any>, prepend?: boolean): () => boolean;
++        match(pattern: string | RegExp, response: Fragment, options?: Matcher.Options & {
++            i18n?: false;
++        }): () => boolean;
++        match(pattern: string, response: string, options?: Matcher.Options & {
++            i18n: true;
++        }): () => boolean;
++        i18n: I18n;
++        // chatluna: `permissions` is provided by @chatluna/permission and typed by
++        // its own cordis augmentation; koishi's Permissions class does not run.
++        $commander: Commander;
++        command<D extends string>(def: D, config?: Command.Config): Command<never, never, Argv.ArgumentType<D>>;
++        command<D extends string>(def: D, desc: string, config?: Command.Config): Command<never, never, Argv.ArgumentType<D>>;
++        schema: SchemaService;
++        $filter: FilterService;
++        filter: Filter;
++        any(): this;
++        never(): this;
++        union(arg: Filter | this): this;
++        intersect(arg: Filter | this): this;
++        exclude(arg: Filter | this): this;
++        user(...values: string[]): this;
++        self(...values: string[]): this;
++        guild(...values: string[]): this;
++        channel(...values: string[]): this;
++        platform(...values: string[]): this;
++        private(...values: string[]): this;
++        model: minato.Database;
++        http: Quester;
++        server: any;
++        before<K extends BeforeEventName>(name: K, listener: BeforeEventMap[K], append?: boolean): () => boolean;
++        /** @deprecated use `ctx.root` instead */
++        readonly app: this;
++        /** @deprecated use `koishi.config` instead */
++        readonly options: any;
++    }
++    interface Events<C> {
++        'before-attach-channel'(session: satori.Session, fields: Set<Channel.Field>): void;
++        'attach-channel'(session: satori.Session): Awaitable<void | boolean>;
++        'before-attach-user'(session: satori.Session, fields: Set<User.Field>): void;
++        'attach-user'(session: satori.Session): Awaitable<void | boolean>;
++        'before-attach'(session: satori.Session): void;
++        'attach'(session: satori.Session): void;
++        'middleware'(session: satori.Session): void;
++        'internal/i18n'(): void;
++        'internal/permission'(): void;
++        'before-parse'(content: string, session: satori.Session): Argv;
++        'command-added'(command: Command): void;
++        'command-updated'(command: Command): void;
++        'command-removed'(command: Command): void;
++        'command-error'(argv: Argv, error: any): void;
++        'command/before-execute'(argv: Argv): Awaitable<void | Fragment>;
++        'command/before-attach-channel'(argv: Argv, fields: Set<Channel.Field>): void;
++        'command/before-attach-user'(argv: Argv, fields: Set<User.Field>): void;
++    }
+ }
+ export interface EnvData {
+ }
+@@ -713,10 +814,18 @@ type BeforeEventMap = {
+ export interface Events<C extends Context = Context> extends cordis.Events<C> {
+ }
+ export interface Context {
+-    [Context.events]: Events<this>;
+-    [Context.session]: Session<never, never, this>;
+     koishi: Koishi;
+ }
++export class Koishi extends cordis.Service<Context.Config> {
++    bot: KoishiBot;
++    database: KoishiDatabase;
++    session: KoishiSession<never, never, Context>;
++    readonly config: Context.Config;
++    get commander(): Commander;
++    static get Config(): Schema<Context.Config>;
++    constructor(ctx: Context, config?: Context.Config);
++}
++export default Koishi;
+ export class Context extends satori.Context {
+     static shadow: symbol;
+     constructor(config?: Context.Config);
+@@ -724,12 +833,6 @@ export class Context extends satori.Context {
+     get app(): this;
+     /** @deprecated use `koishi.config` instead */
+     get options(): any;
+-    /** @deprecated */
+-    waterfall<K extends keyof GetEvents<this>>(name: K, ...args: Parameters<GetEvents<this>[K]>): Promisify<ReturnType<GetEvents<this>[K]>>;
+-    waterfall<K extends keyof GetEvents<this>>(thisArg: ThisType<GetEvents<this>[K]>, name: K, ...args: Parameters<GetEvents<this>[K]>): Promisify<ReturnType<GetEvents<this>[K]>>;
+-    /** @deprecated */
+-    chain<K extends keyof GetEvents<this>>(name: K, ...args: Parameters<GetEvents<this>[K]>): ReturnType<GetEvents<this>[K]>;
+-    chain<K extends keyof GetEvents<this>>(thisArg: ThisType<GetEvents<this>[K]>, name: K, ...args: Parameters<GetEvents<this>[K]>): ReturnType<GetEvents<this>[K]>;
+     before<K extends BeforeEventName>(name: K, listener: BeforeEventMap[K], append?: boolean): () => boolean;
+ }
+ export namespace Context {
+@@ -764,8 +867,7 @@ export namespace Context {
+         }
+     }
+ }
+-export abstract class Service<T = any, C extends Context = Context> extends satori.Service<T, C> {
+-    [satori.Service.setup](): void;
++export abstract class Service<T = any, C extends Context = Context> extends cordis.Service<T> {
+ }
+ export { Context as App };
+ export function defineConfig(config: Context.Config): Context.Config;
+@@ -784,5 +886,5 @@ declare class KoishiBot {
+     broadcast(channels: (string | [string, string] | Session)[], content: Fragment, delay?: any): Promise<string[]>;
+ }
+ export * from '@koishijs/utils';
+-export * from 'minato';
++export * from '@cordisjs/plugin-database';
+ export { version };
+diff --git a/lib/index.mjs b/lib/index.mjs
+index b99cd02..d203e64 100644
+--- a/lib/index.mjs
++++ b/lib/index.mjs
+@@ -2,16 +2,121 @@ var __defProp = Object.defineProperty;
+ var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
+ 
+ // src/index.ts
+-import { version } from "../package.json";
+-export * from "@koishijs/utils";
+-export * from "minato";
++// chatluna: hardcode the version; importing ../package.json needs a JSON import
++// attribute that the published bundle does not carry.
++const version = "4.18.11";
++// chatluna: `export *` from the CJS @koishijs/utils makes require(esm) return a
++// facade that drops every `export {}` name below, and Node's named-export
++// analysis also misses the utils' cosmokit re-exports. Re-export the detected
++// utils-own names explicitly and let cosmokit carry the rest.
++import {
++  assertProperty as assertProperty0,
++  coerce as coerce0,
++  defineEnumProperty as defineEnumProperty0,
++  enumKeys as enumKeys0,
++  escapeRegExp as escapeRegExp0,
++  extend as extend0,
++  interpolate as interpolate0,
++  isInteger as isInteger0,
++  isType as isType0,
++  merge as merge0,
++  observe as observe0,
++  renameProperty as renameProperty0,
++  sleep as sleep0
++} from "@koishijs/utils";
++import Random0 from "@koishijs/utils";
++export {
++  assertProperty0 as assertProperty,
++  coerce0 as coerce,
++  defineEnumProperty0 as defineEnumProperty,
++  enumKeys0 as enumKeys,
++  escapeRegExp0 as escapeRegExp,
++  extend0 as extend,
++  interpolate0 as interpolate,
++  isInteger0 as isInteger,
++  isType0 as isType,
++  merge0 as merge,
++  observe0 as observe,
++  renameProperty0 as renameProperty,
++  sleep0 as sleep
++};
++export const Random = Random0.Random;
++export * from "cosmokit";
++export * from "@cordisjs/plugin-database";
+ 
+ // src/context.ts
+ import { defineProperty as defineProperty6, Time as Time3 } from "cosmokit";
+ import { HTTP, Schema as Schema5 } from "@satorijs/core";
+ import * as satori from "@satorijs/core";
+ import * as cordis from "cordis";
+-import * as minato from "minato";
++import { getTraceable, symbols as cordisSymbols } from "cordis";
++import * as minato from "@cordisjs/plugin-database";
++
++// chatluna: Cordis 4 bridge. Cordis 3 symbols/services that Koishi relies on are
++// re-created here; the Context class itself is patched further below.
++const kContextCurrent = Symbol.for("koishi.current");
++const kInjectCompat = Symbol.for("chatluna.koishi.injectCompat");
++function kFilterHooks(hooks, thisArg) {
++  return (hooks || []).filter((hook) => hook.global || !hook.ctx?.[cordis.Context.filter] || hook.ctx[cordis.Context.filter](thisArg));
++}
++function kRegister(ctx, hooks, name, callback, options = {}) {
++  const hook = { ctx, callback, prepend: options.prepend === true };
++  if (hook.prepend) hooks.unshift(hook);
++  else hooks.push(hook);
++  return ctx.effect(() => () => {
++    const index = hooks.indexOf(hook);
++    if (index >= 0) hooks.splice(index, 1);
++  }, `koishi ${name}`);
++}
++function kCollect(ctx, dispose) {
++  return ctx.effect(() => dispose, "koishi collect");
++}
++// Cordis 3 `ctx.mixin(object, map)` pulled members off the object; Cordis 4 only
++// accepts a service name. Define the same flat accessors (`ctx['session.send']`)
++// that session/bot/database trackers then resolve.
++// Cordis 4 has no `ready` event; fire when the registering fiber goes ACTIVE.
++function kOnReady(ctx, cb) {
++  if (ctx.fiber.state === 2) { setTimeout(cb, 0); return () => {}; }
++  const off = ctx.on("internal/status", (fiber) => {
++    if (fiber === ctx.fiber && fiber.state === 2) { off(); Promise.resolve().then(cb); }
++  });
++  return off;
++}
++function kMixinFrom(ctx, source, mixins) {
++  return ctx.effect(() => {
++    const entries = Array.isArray(mixins) ? mixins.map((key) => [key, key]) : Object.entries(mixins);
++    // Session/bot/database proxies resolve `session.<key>` accessors with the
++    // tracked object as `symbols.receiver`; evaluate the member against it so
++    // extension methods (stripped, send, ...) see the session as `this`.
++    const define = (key, name) => ctx.reflect.accessor(name, {
++      get(receiver) {
++        const target = receiver ?? source;
++        const value = Reflect.get(source, key, target);
++        return typeof value === "function" ? value.bind(target) : value;
++      },
++      set(value, receiver) {
++        return Reflect.set(source, key, value, receiver ?? source);
++      }
++    });
++    const disposables = entries.map(([key, name]) => define(key, name));
++    // Methods on the service object that sessions call internally
++    // (e.g. session.stripped -> this._stripNickname) also need `session.<key>`
++    // accessors. Register every prototype member under the same prefix.
++    const prefix = entries[0]?.[1].split(".", 1)[0];
++    if (prefix) {
++      const declared = new Set(entries.map(([, name]) => name));
++      for (let proto = Object.getPrototypeOf(source); proto && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
++        for (const key of Object.getOwnPropertyNames(proto)) {
++          const name = `${prefix}.${key}`;
++          if (key === "constructor" || declared.has(name) || name in ctx.reflect.props) continue;
++          declared.add(name);
++          disposables.push(define(key, name));
++        }
++      }
++    }
++    return disposables;
++  }, "koishi mixin");
++}
+ 
+ // src/filter.ts
+ import { defineProperty } from "cosmokit";
+@@ -24,35 +129,38 @@ __name(property, "property");
+ var FilterService = class {
+   constructor(ctx) {
+     this.ctx = ctx;
+-    defineProperty(this, Context.current, ctx);
+-    ctx.filter = () => true;
+-    ctx.on("internal/runtime", (runtime) => {
+-      if (!runtime.uid) return;
+-      runtime.ctx.filter = (session) => {
+-        return runtime.children.some((p) => p.ctx.filter(session));
++    defineProperty(this, kContextCurrent, ctx);
++    ctx.root[cordisSymbols.filter] ??= () => true;
++    ctx.on("internal/plugin", (fiber) => {
++      if (!fiber.uid) return;
++      const parentFilter = fiber.ctx[cordisSymbols.filter] ?? (() => true);
++      fiber.ctx[cordisSymbols.filter] = (session) => {
++        return parentFilter(session);
+       };
+     });
+   }
+   static {
+     __name(this, "FilterService");
+   }
++  // chatluna: resolve `this.ctx` to the calling plugin so its registrations are disposed with it.
++  [cordisSymbols.tracker] = { property: "ctx" };
+   any() {
+-    return this.ctx.extend({ filter: /* @__PURE__ */ __name(() => true, "filter") });
++    return this.ctx.extend({ [cordisSymbols.filter]: () => true });
+   }
+   never() {
+-    return this.ctx.extend({ filter: /* @__PURE__ */ __name(() => false, "filter") });
++    return this.ctx.extend({ [cordisSymbols.filter]: () => false });
+   }
+   union(arg) {
+-    const filter2 = typeof arg === "function" ? arg : arg.filter;
+-    return this.ctx.extend({ filter: /* @__PURE__ */ __name((s) => this.ctx.filter(s) || filter2(s), "filter") });
++    const filter2 = typeof arg === "function" ? arg : arg[cordisSymbols.filter];
++    return this.ctx.extend({ [cordisSymbols.filter]: (s) => this.ctx[cordisSymbols.filter](s) || filter2(s) });
+   }
+   intersect(arg) {
+-    const filter2 = typeof arg === "function" ? arg : arg.filter;
+-    return this.ctx.extend({ filter: /* @__PURE__ */ __name((s) => this.ctx.filter(s) && filter2(s), "filter") });
++    const filter2 = typeof arg === "function" ? arg : arg[cordisSymbols.filter];
++    return this.ctx.extend({ [cordisSymbols.filter]: (s) => this.ctx[cordisSymbols.filter](s) && filter2(s) });
+   }
+   exclude(arg) {
+-    const filter2 = typeof arg === "function" ? arg : arg.filter;
+-    return this.ctx.extend({ filter: /* @__PURE__ */ __name((s) => this.ctx.filter(s) && !filter2(s), "filter") });
++    const filter2 = typeof arg === "function" ? arg : arg[cordisSymbols.filter];
++    return this.ctx.extend({ [cordisSymbols.filter]: (s) => this.ctx[cordisSymbols.filter](s) && !filter2(s) });
+   }
+   user(...values) {
+     return property(this.ctx, "userId", ...values);
+@@ -422,8 +530,8 @@ var Argv;
+ })(Argv || (Argv = {}));
+ 
+ // src/middleware.ts
+-import { coerce, makeArray, Random } from "@koishijs/utils";
+-import { defineProperty as defineProperty2, Time } from "cosmokit";
++import { coerce, Random as Random2 } from "@koishijs/utils";
++import { defineProperty as defineProperty2, makeArray, Time } from "cosmokit";
+ import { h as h2 } from "@satorijs/core";
+ 
+ // src/database.ts
+@@ -446,7 +554,7 @@ var Channel;
+ var KoishiDatabase = class {
+   constructor(ctx) {
+     this.ctx = ctx;
+-    ctx.mixin(this, {
++    kMixinFrom(ctx, this, {
+       getUser: "database.getUser",
+       setUser: "database.setUser",
+       createUser: "database.createUser",
+@@ -607,37 +715,29 @@ var Next;
+   Next2.compose = compose;
+   __name(compose, "compose");
+ })(Next || (Next = {}));
+-var Processor = class {
+-  constructor(ctx) {
+-    this.ctx = ctx;
+-    defineProperty2(this, Context.current, ctx);
+-    this.middleware(this.attach.bind(this), true);
+-    ctx.on("message", this._handleMessage.bind(this));
+-    ctx.before("attach-user", (session, fields) => {
+-      session.collect("user", session.argv, fields);
+-    });
+-    ctx.before("attach-channel", (session, fields) => {
+-      session.collect("channel", session.argv, fields);
+-    });
+-    ctx.component("execute", async (attrs, children, session) => {
++// chatluna: session components must wait for the satori service; ctx.component is
++// only reachable through its mixin, which lands when the satori fiber applies.
++function installComponents(ctx) {
++  ctx.inject(["satori"], (sub) => {
++    sub.component("execute", async (attrs, children, session) => {
+       return session.execute(children.join(""), true);
+     }, { session: true });
+-    ctx.component("prompt", async (attrs, children, session) => {
++    sub.component("prompt", async (attrs, children, session) => {
+       await session.send(children);
+       return session.prompt();
+     }, { session: true });
+-    ctx.component("i18n", async (attrs, children, session) => {
++    sub.component("i18n", async (attrs, children, session) => {
+       return session.i18n(attrs.path, children);
+     }, { session: true });
+-    ctx.component("random", async (attrs, children) => {
+-      return Random.pick(children);
++    sub.component("random", async (attrs, children) => {
++      return Random2.pick(children);
+     });
+-    ctx.component("plural", async (attrs, children) => {
++    sub.component("plural", async (attrs, children) => {
+       const path2 = attrs.count in children ? attrs.count : children.length - 1;
+       return children[path2];
+     });
+     const units = ["day", "hour", "minute", "second"];
+-    ctx.component("i18n:time", (attrs, children, session) => {
++    sub.component("i18n:time", (attrs, children, session) => {
+       let ms = +attrs.value;
+       for (let index = 0; index < 3; index++) {
+         const major = Time[units[index]];
+@@ -653,6 +753,21 @@ var Processor = class {
+       }
+       return Math.round(ms / Time.second) + " " + session.text("general.second");
+     }, { session: true });
++  });
++}
++var Processor = class {
++  constructor(ctx) {
++    this.ctx = ctx;
++    defineProperty2(this, kContextCurrent, ctx);
++    this.middleware(this.attach.bind(this), true);
++    ctx.on("message", this._handleMessage.bind(this));
++    ctx.before("attach-user", (session, fields) => {
++      session.collect("user", session.argv, fields);
++    });
++    ctx.before("attach-channel", (session, fields) => {
++      session.collect("channel", session.argv, fields);
++    });
++    installComponents(ctx);
+     ctx.before("attach", (session) => {
+       for (const matcher of this._matchers) {
+         this._executeMatcher(session, matcher);
+@@ -663,6 +778,8 @@ var Processor = class {
+   static {
+     __name(this, "Processor");
+   }
++  // chatluna: resolve `this.ctx` to the calling plugin so its registrations are disposed with it.
++  [cordisSymbols.tracker] = { property: "ctx" };
+   _hooks = [];
+   _sessions = /* @__PURE__ */ Object.create(null);
+   _matchers = /* @__PURE__ */ new Set();
+@@ -670,12 +787,12 @@ var Processor = class {
+     if (typeof options !== "object") {
+       options = { prepend: options };
+     }
+-    return this.ctx.lifecycle.register("middleware", this._hooks, middleware, options);
++    return kRegister(this.ctx, this._hooks, "middleware", middleware, options);
+   }
+   match(pattern, response, options) {
+     const matcher = { ...options, context: this.ctx, pattern, response };
+     this._matchers.add(matcher);
+-    return this.ctx.collect("shortcut", () => {
++    return kCollect(this.ctx, () => {
+       return this._matchers.delete(matcher);
+     });
+   }
+@@ -683,7 +800,7 @@ var Processor = class {
+     const { stripped, quote } = session;
+     const { appel, context, i18n, regex, fuzzy, pattern, response } = matcher;
+     if ((appel || stripped.hasAt) && !stripped.appel) return;
+-    if (!context.filter(session)) return;
++    if (!(context[cordisSymbols.filter]?.(session) ?? true)) return;
+     let content = stripped.content;
+     if (quote?.content) content += " " + quote.content;
+     let params = null;
+@@ -724,7 +841,7 @@ var Processor = class {
+   }
+   async attach(session, next) {
+     this.ctx.emit(session, "before-attach", session);
+-    if (this.ctx.database) {
++    if (this.ctx.get("database", false)) {
+       if (!session.isDirect) {
+         const channelFields = /* @__PURE__ */ new Set(["flag", "assignee", "guildId", "permissions", "locales"]);
+         this.ctx.emit("before-attach-channel", session, channelFields);
+@@ -747,7 +864,7 @@ var Processor = class {
+   async _handleMessage(session) {
+     if (session.selfId === session.userId) return;
+     this._sessions[session.id] = session;
+-    const queue = this.ctx.lifecycle.filterHooks(this._hooks, session).map(({ callback }) => callback.bind(null, session));
++    const queue = kFilterHooks(this._hooks, session).map(({ callback }) => callback.bind(null, session));
+     let index = 0;
+     const next = /* @__PURE__ */ __name(async (callback) => {
+       try {
+@@ -778,7 +895,14 @@ ${stack}`);
+       await session.user?.$update();
+       await session.channel?.$update();
+       await session.guild?.$update();
+-      this.ctx.emit(session, "middleware", session);
++      // chatluna: a throwing 'middleware' listener must not reject
++      // _handleMessage — the emit call site `void`s it, so a throw would escape
++      // as an unhandledRejection for every inbound message.
++      try {
++        this.ctx.emit(session, "middleware", session);
++      } catch (error) {
++        this.ctx.logger("session").warn(error);
++      }
+     }
+   }
+ };
+@@ -843,7 +967,7 @@ var Command = class _Command extends Argv.CommandBase {
+     ctx.$commander._commandList.push(this);
+   }
+   get caller() {
+-    return this[Context.current] || this.ctx;
++    return this[kContextCurrent] || this.ctx;
+   }
+   get displayName() {
+     return Object.keys(this._aliases)[0];
+@@ -971,7 +1095,7 @@ var Command = class _Command extends Argv.CommandBase {
+     return this;
+   }
+   match(session) {
+-    return this.ctx.filter(session);
++    return this.ctx[cordisSymbols.filter]?.(session) ?? true;
+   }
+   check(callback, append = false) {
+     return this.before(callback, append);
+@@ -982,7 +1106,7 @@ var Command = class _Command extends Argv.CommandBase {
+     } else {
+       this._checkers.unshift(callback);
+     }
+-    this.caller.scope.disposables?.push(() => remove(this._checkers, callback));
++    this.caller.effect(() => () => remove(this._checkers, callback));
+     return this;
+   }
+   action(callback, prepend = false) {
+@@ -991,7 +1115,7 @@ var Command = class _Command extends Argv.CommandBase {
+     } else {
+       this._actions.push(callback);
+     }
+-    this.caller.scope.disposables?.push(() => remove(this._actions, callback));
++    this.caller.effect(() => () => remove(this._actions, callback));
+     return this;
+   }
+   /** @deprecated */
+@@ -1095,7 +1219,9 @@ __name(toStringType, "toStringType");
+ // src/command/validate.ts
+ import { isNullable as isNullable2 } from "cosmokit";
+ function validate(ctx) {
+-  ctx.permissions.define("command:(name)", {
++  const permissions = ctx.get("permissions", false);
++  if (!permissions) return;
++  permissions.define("command:(name)", {
+     depends: /* @__PURE__ */ __name(({ name }) => {
+       const command = ctx.$commander.get(name);
+       if (!command) return;
+@@ -1110,7 +1236,7 @@ function validate(ctx) {
+       return ctx.$commander._commandList.map((command) => `command:${command.name}`);
+     }, "list")
+   });
+-  ctx.permissions.define("command:(name):option:(name2)", {
++  permissions.define("command:(name):option:(name2)", {
+     depends: /* @__PURE__ */ __name(({ name, name2 }) => {
+       return ctx.$commander.get(name)?._options[name2]?.dependencies;
+     }, "depends"),
+@@ -1130,13 +1256,13 @@ function validate(ctx) {
+       return command.config.showWarning ? session.text(message, param) : "";
+     }
+     __name(sendHint, "sendHint");
+-    const permissions = [`command:${command.name}`];
++    const required = [`command:${command.name}`];
+     for (const option of Object.values(command._options)) {
+       if (option.name in options) {
+-        permissions.push(`command:${command.name}:option:${option.name}`);
++        required.push(`command:${command.name}:option:${option.name}`);
+       }
+     }
+-    if (!await ctx.permissions.test(permissions, session)) {
++    if (!await permissions.test(required, session)) {
+       return sendHint("internal.low-authority");
+     }
+   }, true);
+@@ -1182,7 +1308,7 @@ var Commander = class {
+   constructor(ctx, config = {}) {
+     this.ctx = ctx;
+     this.config = config;
+-    defineProperty3(this, Context.current, ctx);
++    defineProperty3(this, kContextCurrent, ctx);
+     ctx.plugin(validate);
+     ctx.before("parse", (content, session) => {
+       const { isDirect, stripped: { prefix, appel } } = session;
+@@ -1255,7 +1381,7 @@ var Commander = class {
+       permissions: Schema2.array(String).role("perms").default(["authority:0"]).description("权限继承。"),
+       dependencies: Schema2.array(String).role("perms").description("权限依赖。")
+     }), 1e3);
+-    ctx.on("ready", () => {
++    kOnReady(ctx, () => {
+       const bots = ctx.bots.filter((v) => v.status === Universal3.Status.ONLINE && v.updateCommands);
+       bots.forEach((bot) => this.updateCommands(bot));
+     });
+@@ -1334,6 +1460,8 @@ var Commander = class {
+   static {
+     __name(this, "Commander");
+   }
++  // chatluna: resolve `this.ctx` to the calling plugin so its registrations are disposed with it.
++  [cordisSymbols.tracker] = { property: "ctx" };
+   _commandList = [];
+   defineElementDomain(name, key = name, type = name) {
+     this.domain(name, (source, session) => {
+@@ -1456,13 +1584,14 @@ var Commander = class {
+     });
+     Object.assign(parent.config, config);
+     created.forEach((command) => this.ctx.emit("command-added", command));
+-    parent[Context.current] = this.ctx;
+-    if (root) this.ctx.collect(`command <${root.name}>`, () => root.dispose());
++    parent[kContextCurrent] = this.ctx;
++    if (root) kCollect(this.ctx, () => root.dispose());
+     return parent;
+   }
+   domain(name, transform, options) {
+     const service = "domain:" + name;
+-    if (!transform) return this.ctx.get(service);
++    if (!transform) return this.ctx.get(service, false);
++    this.ctx.provide(service, { transform, ...options });
+     return this.ctx.set(service, { transform, ...options });
+   }
+   resolveDomain(type) {
+@@ -1570,6 +1699,8 @@ var I18n = class {
+   static {
+     __name(this, "I18n");
+   }
++  // chatluna: resolve `this.ctx` to the calling plugin so its registrations are disposed with it.
++  [cordisSymbols.tracker] = { property: "ctx" };
+   _data = {};
+   _presets = {};
+   locales;
+@@ -1613,7 +1744,7 @@ var I18n = class {
+     const dict = this._data[locale] ||= {};
+     const paths = [...typeof args[0] === "string" ? this.set(locale, args[0] + ".", args[1]) : this.set(locale, "", args[0])];
+     this.ctx.emit("internal/i18n");
+-    return this.ctx.collect("i18n", () => {
++    return kCollect(this.ctx, () => {
+       for (const path2 of paths) {
+         delete dict[path2];
+       }
+@@ -1680,7 +1811,7 @@ var I18n = class {
+ import { observe } from "@koishijs/utils";
+ import { isNullable as isNullable4, makeArray as makeArray2 } from "cosmokit";
+ import { h as h5, Logger as Logger3 } from "@satorijs/core";
+-import { executeEval, isEvalExpr } from "minato";
++import { executeEval, isEvalExpr } from "@cordisjs/plugin-database";
+ var logger3 = new Logger3("session");
+ function collectFields(argv, collectors, fields) {
+   for (const collector of collectors) {
+@@ -1700,7 +1831,8 @@ var KoishiSession = class {
+     __name(this, "KoishiSession");
+   }
+   constructor(ctx) {
+-    ctx.mixin(this, {
++    this.ctx = ctx;
++    kMixinFrom(ctx, this, {
+       resolve: "session.resolve",
+       stripped: "session.stripped",
+       username: "session.username",
+@@ -1969,7 +2101,7 @@ var KoishiSession = class {
+       }
+     }
+     const { command } = argv;
+-    if (!command.ctx.filter(this)) return [];
++    if (!(command.ctx[cordisSymbols.filter]?.(this) ?? true)) return [];
+     if (this.app.database) {
+       if (!this.isDirect) {
+         await this.observeChannel(this.collect("channel", argv, /* @__PURE__ */ new Set(["permissions", "locales"])));
+@@ -2058,8 +2190,7 @@ var logger4 = new Logger4("app");
+ var Permissions = class {
+   constructor(ctx) {
+     this.ctx = ctx;
+-    defineProperty4(this, Context.current, ctx);
+-    ctx.alias("permissions", ["perms"]);
++    defineProperty4(this, kContextCurrent, ctx);
+     this.define("authority:(value)", {
+       check: /* @__PURE__ */ __name(({ value }, { user }) => {
+         return !user || user.authority >= +value;
+@@ -2076,6 +2207,8 @@ var Permissions = class {
+   static {
+     __name(this, "Permissions");
+   }
++  // chatluna: resolve `this.ctx` to the calling plugin so its registrations are disposed with it.
++  [cordisSymbols.tracker] = { property: "ctx" };
+   store = [];
+   define(pattern, options) {
+     const entry = {
+@@ -2167,7 +2300,8 @@ var KoishiBot = class {
+     __name(this, "KoishiBot");
+   }
+   constructor(ctx) {
+-    ctx.mixin(this, {
++    this.ctx = ctx;
++    kMixinFrom(ctx, this, {
+       getGuildMemberMap: "bot.getGuildMemberMap",
+       broadcast: "bot.broadcast"
+     });
+@@ -2238,9 +2372,11 @@ var SchemaService = class {
+   static {
+     __name(this, "SchemaService");
+   }
++  // chatluna: resolve `this.ctx` to the calling plugin so its registrations are disposed with it.
++  [cordisSymbols.tracker] = { property: "ctx" };
+   _data = /* @__PURE__ */ Object.create(null);
+   extend(name, schema, order = 0) {
+-    const caller = this[Context.current];
++    const caller = this.ctx;
+     const target = this.get(name);
+     const index = target.list.findIndex((a) => a[kSchemaOrder] < order);
+     schema[kSchemaOrder] = order;
+@@ -2250,7 +2386,7 @@ var SchemaService = class {
+       target.list.push(schema);
+     }
+     this.ctx.emit("internal/schema", name);
+-    caller?.on("dispose", () => {
++    caller?.effect(() => () => {
+       remove3(target.list, schema);
+       this.ctx.emit("internal/schema", name);
+     });
+@@ -2259,10 +2395,10 @@ var SchemaService = class {
+     return this._data[name] ||= Schema4.intersect([]);
+   }
+   set(name, schema) {
+-    const caller = this[Context.current];
++    const caller = this.ctx;
+     this._data[name] = schema;
+     this.ctx.emit("internal/schema", name);
+-    caller?.on("dispose", () => {
++    caller?.effect(() => () => {
+       delete this._data[name];
+       this.ctx.emit("internal/schema", name);
+     });
+@@ -2272,6 +2408,120 @@ var SchemaService = class {
+ // src/context.ts
+ import { Adapter as Adapter2, Bot as Bot3, Element, h as h6, HTTP as HTTP2, Logger as Logger5, MessageEncoder, Messenger, Quester, Schema as Schema6, segment, Universal as Universal5, z } from "@satorijs/core";
+ import { resolveConfig } from "cordis";
++// chatluna: install Koishi capabilities onto an existing Cordis 4 context.
++// Called from Koishi's constructor; Context's own constructor delegates here too.
++function installKoishi(ctx, config) {
++  // Cordis 3 compat accessors: resolve lazily through the accessing fiber so
++  // lifecycle-scoped APIs (before/on) bind to the caller, not this service.
++  ctx.accessor("before", {
++    get() {
++      const self = this;
++      return (name, listener, append = false) => {
++        const seg = name.split("/");
++        seg[seg.length - 1] = "before-" + seg[seg.length - 1];
++        return self.on(seg.join("/"), listener, !append);
++      };
++    }
++  });
++  ctx.accessor("filter", {
++    get() {
++      const self = this;
++      return (session) => self[cordisSymbols.filter]?.(session) ?? true;
++    }
++  });
++  ctx.accessor("app", {
++    get() {
++      return this[cordis.Context.root] ?? this;
++    }
++  });
++  ctx.accessor("root", {
++    get() {
++      return this[cordis.Context.root] ?? this;
++    }
++  });
++  // Koishi plugins read app-level settings through ctx.config / ctx.root.config;
++  // both resolve to the Koishi service config regardless of the accessing fiber.
++  ctx.accessor("config", {
++    get() {
++      return this.get("koishi", false)?.config ?? this.fiber?.config;
++    }
++  });
++  ctx.accessor("options", {
++    get() {
++      return this.get("koishi", false)?.config ?? this.fiber?.config;
++    }
++  });
++  ctx.accessor("collect", {
++    get() {
++      const self = this;
++      return (_name, dispose) => kCollect(self, dispose);
++    }
++  });
++  ctx.accessor("scope", {
++    get() {
++      return this.fiber;
++    }
++  });
++  // Cordis 4 reads plugin.inject as { service: config }; koishi plugins declare
++  // { required: string[], optional: string[] }. Normalize the koishi shape so an
++  // `optional` list no longer reads as a dependency on a service named
++  // "optional". Optional deps are reads through ctx.get(name) inside apply.
++  // The wrapper lives on the registry prototype: monkeypatching ctx.plugin as an
++  // own property would bind every descendant `ctx.plugin` call to this fiber,
++  // breaking the receiver threading that keeps plugin fibers under their caller.
++  {
++    const registryProto = Object.getPrototypeOf(ctx.registry);
++    if (!registryProto[kInjectCompat]) {
++      Object.defineProperty(registryProto, kInjectCompat, { value: true, configurable: true });
++      const original = registryProto.plugin;
++      registryProto.plugin = function (plugin, config, ...rest) {
++        const inject = plugin?.inject;
++        if (
++          inject &&
++          !Array.isArray(inject) &&
++          (Array.isArray(inject.required) || Array.isArray(inject.optional))
++        ) {
++          plugin = Object.assign(Object.create(null), plugin, { inject: inject.required ?? [] });
++        }
++        return original.call(this, plugin, config, ...rest);
++      };
++    }
++  }
++  // Cordis 3 resolved ctx.<service> against a global service set; cordis 4 only
++  // resolves provisions of the accessing fiber's ancestors and declared injects.
++  // Restore the global lookup so koishi internals (ctx.model, ctx.bots,
++  // ctx.permissions, ...) work on every fiber regardless of inject declarations.
++  ctx.events.on("internal/get", (self, name, error, next) => self.get(name, false) ?? next());
++  // Mount satori and minato as direct service constructions rather than plugin
++  // fibers: ctx.plugin applies asynchronously, but koishi internals touch
++  // ctx.model and ctx.component during construction. Providing them on this
++  // fiber also makes them reachable through locate() for every koishi plugin.
++  if (!ctx.get("satori", false)) new satori.Satori(ctx);
++  ctx.mixin("$processor", ["match", "middleware"]);
++  ctx.mixin("$filter", [
++    "any",
++    "never",
++    "union",
++    "intersect",
++    "exclude",
++    "user",
++    "self",
++    "guild",
++    "channel",
++    "platform",
++    "private"
++  ]);
++  ctx.mixin("$commander", ["command"]);
++  ctx.provide("$filter", new FilterService(ctx));
++  ctx.provide("schema", new SchemaService(ctx));
++  ctx.provide("$processor", new Processor(ctx));
++  ctx.provide("i18n", new I18n(ctx, config.i18n));
++  ctx.provide("$commander", new Commander(ctx, config));
++  // chatluna: `http`/`server` come from @cordisjs/plugin-http and
++  // @cordisjs/plugin-server mounted by the host, `model` from the manifest's
++  // @cordisjs/plugin-database (the Koishi service injects it), and
++  // `permissions` from @chatluna/permission instead of koishi's own implementations.
++}
+ var Context = class extends satori.Context {
+   static {
+     __name(this, "Context");
+@@ -2279,31 +2529,8 @@ var Context = class extends satori.Context {
+   static shadow = /* @__PURE__ */ Symbol.for("session.shadow");
+   constructor(config = {}) {
+     super(config);
+-    this.mixin("$processor", ["match", "middleware"]);
+-    this.mixin("$filter", [
+-      "any",
+-      "never",
+-      "union",
+-      "intersect",
+-      "exclude",
+-      "user",
+-      "self",
+-      "guild",
+-      "channel",
+-      "platform",
+-      "private"
+-    ]);
+-    this.mixin("$commander", ["command"]);
+-    this.provide("$filter", new FilterService(this), true);
+-    this.provide("schema", new SchemaService(this), true);
+-    this.provide("$processor", new Processor(this), true);
+-    this.provide("i18n", new I18n(this, this.config.i18n), true);
+-    this.provide("permissions", new Permissions(this), true);
+-    this.provide("model", void 0, true);
+-    this.provide("http", void 0, true);
+-    this.provide("$commander", new Commander(this, this.config), true);
+-    this.plugin(minato.Database);
+-    this.plugin(Koishi, this.config);
++    installKoishi(this, config);
++    this.plugin(Koishi, config);
+   }
+   /** @deprecated use `ctx.root` instead */
+   get app() {
+@@ -2313,25 +2540,6 @@ var Context = class extends satori.Context {
+   get options() {
+     return this.root.config;
+   }
+-  async waterfall(...args) {
+-    const thisArg = typeof args[0] === "object" || typeof args[0] === "function" ? args.shift() : null;
+-    const name = args.shift();
+-    for (const hook of this.lifecycle.filterHooks(this.lifecycle._hooks[name] || [], thisArg)) {
+-      const result = await hook.callback.apply(thisArg, args);
+-      args[0] = result;
+-    }
+-    return args[0];
+-  }
+-  chain(...args) {
+-    const thisArg = typeof args[0] === "object" || typeof args[0] === "function" ? args.shift() : null;
+-    const name = args.shift();
+-    for (const hook of this.lifecycle.filterHooks(this.lifecycle._hooks[name] || [], thisArg)) {
+-      const result = hook.callback.apply(thisArg, args);
+-      args[0] = result;
+-    }
+-    return args[0];
+-  }
+-  /* eslint-enable max-len */
+   before(name, listener, append = false) {
+     const seg = name.split("/");
+     seg[seg.length - 1] = "before-" + seg[seg.length - 1];
+@@ -2339,19 +2547,36 @@ var Context = class extends satori.Context {
+   }
+ };
+ var Koishi = class extends cordis.Service {
+-  constructor(ctx, config) {
+-    super(ctx, "koishi", true);
++  // KoishiDatabase extends ctx.model on construction; only the manifest's database plugin owns it.
++  static inject = ["model"];
++  // Context.Config's intersect list is populated after this class is defined;
++  // defer to it through a getter.
++  static get Config() {
++    return Context.Config;
++  }
++  get commander() {
++    return this.ctx.get("$commander", false);
++  }
++  constructor(ctx, config = {}) {
++    super(ctx, "koishi");
+     this.config = config;
++    // The service mounts Koishi onto whatever Cordis 4 context loaded it,
++    // rather than requiring a Koishi-flavored root Context. installKoishi must
++    // run before the mixin fields: KoishiDatabase touches ctx.model.
++    installKoishi(ctx, config);
++    this.bot = new bot_default(this.ctx);
++    this.database = new database_default(this.ctx);
++    this.session = new session_default(this.ctx);
+   }
+   static {
+     __name(this, "Koishi");
+   }
+-  bot = new bot_default(this.ctx);
+-  database = new database_default(this.ctx);
+-  session = new session_default(this.ctx);
++  bot;
++  database;
++  session;
+ };
+-satori.Session.prototype[Context.filter] = function(ctx) {
+-  return ctx.filter(this);
++satori.Session.prototype[cordis.Context.filter] = function(ctx) {
++  return ctx[cordisSymbols.filter]?.(this) ?? true;
+ };
+ ((Context3) => {
+   Context3.Config = Schema5.intersect([
+@@ -2399,12 +2624,15 @@ var Service3 = class extends satori.Service {
+     this.ctx = new Context();
+   }
+ };
++const Session = satori.Session;
+ function defineConfig(config) {
+   return config;
+ }
+ __name(defineConfig, "defineConfig");
+ export {
+   Adapter2 as Adapter,
++  Koishi,
++  Koishi as default,
+   Context as App,
+   Argv,
+   Bot3 as Bot,
+@@ -2426,6 +2654,7 @@ export {
+   Schema6 as Schema,
+   SchemaService,
+   Service3 as Service,
++  Session,
+   SessionError,
+   SharedCache,
+   Universal5 as Universal,
+diff --git a/package.json b/package.json
+index 7775412..0d49847 100644
+--- a/package.json
++++ b/package.json
+@@ -2,7 +2,7 @@
+   "name": "@koishijs/core",
+   "description": "Core Features for Koishi",
+   "version": "4.18.11",
+-  "main": "lib/index.cjs",
++  "main": "lib/index.mjs",
+   "module": "lib/index.mjs",
+   "typings": "lib/index.d.ts",
+   "files": [
+@@ -37,9 +37,18 @@
+     "@koishijs/i18n-utils": "^1.0.1",
+     "@koishijs/utils": "^7.2.1",
+     "@satorijs/core": "^4.6.0",
+-    "cordis": "^3.18.1",
++    "cordis": "^4.0.0-rc.8",
+     "cosmokit": "^1.8.1",
+     "fastest-levenshtein": "^1.0.16",
+-    "minato": "^3.7.0"
++    "@cordisjs/plugin-database": "4.1.1"
++  },
++  "exports": {
++    ".": {
++      "types": "./lib/index.d.ts",
++      "require": "./lib/index.mjs",
++      "import": "./lib/index.mjs"
++    },
++    "./src/*": "./src/*",
++    "./package.json": "./package.json"
+   }
+ }
+\ No newline at end of file

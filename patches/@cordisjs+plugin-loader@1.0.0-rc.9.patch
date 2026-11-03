@@ -1,0 +1,82 @@
+diff --git a/lib/config/group.d.ts b/lib/config/group.d.ts
+index 2ae7a04..0ade21f 100644
+--- a/lib/config/group.d.ts
++++ b/lib/config/group.d.ts
+@@ -5,6 +5,7 @@ export declare class EntryGroup {
+     ctx: Context;
+     tree: EntryTree;
+     static readonly key: unique symbol;
++    static readonly prelude: unique symbol;
+     data: EntryOptions[];
+     constructor(ctx: Context, tree: EntryTree);
+     get context(): Context;
+diff --git a/lib/index.js b/lib/index.js
+index 1e2197d..688f658 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -175,6 +175,7 @@ var EntryGroup = class {
+     __name(this, "EntryGroup");
+   }
+   static key = /* @__PURE__ */ Symbol.for("cordis.group");
++  static prelude = /* @__PURE__ */ Symbol.for("cordis.loader.prelude");
+   data = [];
+   get context() {
+     return this.ctx;
+@@ -230,13 +231,33 @@ var EntryGroup = class {
+     const oldMap = Object.fromEntries(oldConfig.map((options) => [options?.id, options]));
+     const newMap = Object.fromEntries(config.map((options) => [options?.id ?? /* @__PURE__ */ Symbol("anonymous"), options]));
+     const ids = Reflect.ownKeys({ ...oldMap, ...newMap });
++    for (const id of ids) {
++      if (!newMap[id]) this.remove(id);
++    }
++    const prelude = new Set();
++    // Sequential: a CJS require() of an ESM module a parallel import() is still loading throws ERR_REQUIRE_ESM_RACE_CONDITION.
++    for (const options of config) {
++      if (options.disabled) continue;
++      let plugin;
++      try {
++        plugin = this.ctx.loader.unwrapExports(await this.tree.import(options.name));
++      } catch {
++        // Entry.init owns import-failure reporting with the outer stack.
++        continue;
++      }
++      if (!plugin?.[EntryGroup.prelude]) continue;
++      prelude.add(options);
++      const id = await this.create(options);
++      // group.create returns the fully qualified id; resolve() walks subtrees.
++      const fiber = this.ctx.loader.resolve(id)?.fiber;
++      await fiber?.await();
++      if (fiber?.state !== 2) throw new Error(`prelude entry ${id} is not active`);
++    }
+     await Promise.all(ids.map(async (id) => {
+-      if (newMap[id]) {
++      if (newMap[id] && !prelude.has(newMap[id])) {
+         await this.create(newMap[id]).catch((error) => {
+           this.ctx.logger.error(error);
+         });
+-      } else {
+-        this.remove(id);
+       }
+     }));
+   }
+@@ -864,14 +885,18 @@ var Loader = class extends EntryTree {
+       if (!fiber.entry || fiber.parent.fiber?.entry === fiber.entry) return config2;
+       sources.set(fiber, config2);
+       if (fiber.runtime.callback[EntryGroup.key]) return config2;
+-      return interpolate(fiber.ctx, config2);
++      const holder = { value: interpolate(fiber.ctx, config2) };
++      this.ctx.emit("loader/resolve-config", fiber.entry, holder);
++      return holder.value;
+     });
+     ctx.on("internal/commit", (fiber, config2) => {
+       if (!fiber.entry || fiber.parent.fiber?.entry === fiber.entry) return;
+       const unparse = fiber.runtime?.Config?.["simplify"];
+       const { entry } = fiber;
+       const legacy = { ...entry.options };
+-      entry.options.config = unparse ? unparse(config2) : config2;
++      const holder = { value: unparse ? unparse(config2) : config2 };
++      this.ctx.emit("loader/persist-config", entry, holder);
++      entry.options.config = holder.value;
+       entry.parent.tree.commit({ id: entry.options.id, group: entry.parent, options: entry.options, legacy });
+     });
+     ctx.on("internal/update", function(config2, next) {

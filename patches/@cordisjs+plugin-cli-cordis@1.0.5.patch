@@ -1,0 +1,56 @@
+diff --git a/lib/worker/index.d.ts b/lib/worker/index.d.ts
+index 4362cf8..ae92999 100644
+--- a/lib/worker/index.d.ts
++++ b/lib/worker/index.d.ts
+@@ -4,6 +4,10 @@ export interface Config {
+     baseUrl?: string;
+     execArgv?: string[];
+     path: string;
++    /** Fixed id for the root include entry; defaults to 'chatluna' (keeps tree ids stable). */
++    includeId?: string;
++    /** Override/extend the root include config (e.g. inject `patches` to enable a group). */
++    include?: Record<string, unknown>;
+     daemon: daemon.Config;
+     prelude?: EntryOptions[];
+ }
+diff --git a/lib/worker/index.js b/lib/worker/index.js
+index 91ff829..ec55279 100644
+--- a/lib/worker/index.js
++++ b/lib/worker/index.js
+@@ -31,6 +31,12 @@ function* apply(ctx, config = {}) {
+   process.on("SIGTERM", handleSignal);
+   yield () => process.off("SIGTERM", handleSignal);
+   process.send({ type: "start", body: config });
++  // Health over IPC: the supervisor pings, the worker answers; no network address involved.
++  const onMessage = /* @__PURE__ */ __name((message) => {
++    if (message?.type === "ping") process.send({ type: "pong", id: message.id });
++  }, "onMessage");
++  process.on("message", onMessage);
++  yield () => process.off("message", onMessage);
+   if (config.heartbeatInterval) {
+     const timer = setInterval(() => {
+       process.send({ type: "heartbeat" });
+@@ -59,12 +65,22 @@ async function start(config) {
+     await ctx.loader.create(plugin);
+   }
+   await ctx.loader.create({
++    // Fixed id so tree-side entries keep stable ids (chatluna:<id>) across restarts.
++    id: config.includeId ?? "chatluna",
+     name: "@cordisjs/plugin-include",
+     config: {
++      // `include` lets the launcher override the include config wholesale (e.g.
++      // `chatluna dev` injects a `patches` entry to enable the dev group).
+       path: config.path,
+-      enableLogs: true
++      enableLogs: true,
++      ...config.include
+     }
+   });
++  // Ready once every entry has finished loading (failed plugins included; they are logged).
++  if (config.daemon.enabled) {
++    await ctx.loader.await();
++    process.send({ type: "ready" });
++  }
+ }
+ __name(start, "start");
+ export {

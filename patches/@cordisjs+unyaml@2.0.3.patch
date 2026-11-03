@@ -1,0 +1,69 @@
+diff --git a/lib/vite.js b/lib/vite.js
+index b16d836..b1c6380 100644
+--- a/lib/vite.js
++++ b/lib/vite.js
+@@ -5,7 +5,6 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+ var __getOwnPropNames = Object.getOwnPropertyNames;
+ var __getProtoOf = Object.getPrototypeOf;
+ var __hasOwnProp = Object.prototype.hasOwnProperty;
+-var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
+ var __copyProps = (to, from, except, desc) => {
+   if (from && typeof from === "object" || typeof from === "function") {
+     for (let key of __getOwnPropNames(from))
+@@ -15,10 +14,6 @@ var __copyProps = (to, from, except, desc) => {
+   return to;
+ };
+ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+-  // If the importer is in node compatibility mode or this is not an ESM
+-  // file that has been converted to a CommonJS file using a Babel-
+-  // compatible transform (i.e. "__esModule" has not been set), then set
+-  // "default" to the CommonJS "module.exports" for node compatibility.
+   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+   mod
+ ));
+@@ -26,16 +21,36 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
+ // src/vite.ts
+ var yaml = __toESM(require("js-yaml"));
+ var import_tosource = __toESM(require("tosource"));
+-var import_esbuild = __toESM(require("./esbuild"));
+ function unyaml(options = {}) {
+   const { filter = /\.ya?ml(?:\?.*)?$/, ...loadOptions } = options;
+   return {
+     name: "unyaml",
+     config() {
++      // Vite dependency optimization uses Rolldown, not the retired esbuildOptions hook.
+       return {
+         optimizeDeps: {
+-          esbuildOptions: {
+-            plugins: [(0, import_esbuild.default)({ filter, ...loadOptions })]
++          rolldownOptions: {
++            plugins: [{
++              name: "unyaml",
++              async resolveId(id, importer) {
++                if (!filter.test(id)) return;
++                // The scanner resolves nothing itself: a relative id has to be joined to its importer, not the process cwd.
++                if (id.startsWith(".") && importer) {
++                  const path = require("node:path");
++                  return path.resolve(path.dirname(importer), id);
++                }
++                const resolved = await this.resolve(id, importer, { skipSelf: true });
++                return resolved?.id ?? id;
++              },
++              async load(id) {
++                if (!filter.test(id)) return;
++                const text = await import("node:fs/promises").then((m) => m.readFile(id, "utf8"));
++                const data = yaml.load(text, { ...loadOptions, filename: id });
++                return {
++                  code: `export default ${(0, import_tosource.default)(data)}`
++                };
++              }
++            }]
+           }
+         }
+       };
+@@ -50,5 +65,4 @@ function unyaml(options = {}) {
+     }
+   };
+ }
+-__name(unyaml, "unyaml");
+ module.exports = unyaml;

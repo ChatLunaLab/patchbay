@@ -3,7 +3,11 @@
     {
       "name": "@cordisjs/plugin-cli-cordis",
       "version": "1.0.5",
-      "description": "Stable root include id, launcher include overrides and IPC health pings"
+      "description": "Stable root include id, launcher include overrides and IPC health pings; best-effort stdio, exit on parent disconnect and a bounded exit",
+      "fixes": [
+        "ChatLunaLab/v2-mirror#99",
+        "cordiverse/cordis#294"
+      ]
     },
     {
       "name": "@cordisjs/plugin-database",

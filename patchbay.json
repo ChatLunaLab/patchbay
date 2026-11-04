@@ -35,7 +35,8 @@
       "version": "4.18.11",
       "description": "Run Koishi on Cordis 4; also installed as koishi. Inject shapes are normalized by the @satorijs/core patch",
       "fixes": [
-        "ChatLunaLab/boilerplate#12"
+        "ChatLunaLab/boilerplate#12",
+        "ChatLunaLab/v2-mirror#28"
       ],
       "dependencies": {
         "cordis": "^4.0.0-rc.8"

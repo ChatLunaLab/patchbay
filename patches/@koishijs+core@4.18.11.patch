@@ -292,10 +292,10 @@ index b0e0826..004cff1 100644
 +export * from '@cordisjs/plugin-database';
  export { version };
 diff --git a/lib/index.mjs b/lib/index.mjs
-index b99cd02..ddbf1bf 100644
+index b99cd02..095a3eb 100644
 --- a/lib/index.mjs
 +++ b/lib/index.mjs
-@@ -2,16 +2,120 @@ var __defProp = Object.defineProperty;
+@@ -2,16 +2,124 @@ var __defProp = Object.defineProperty;
  var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
  
  // src/index.ts
@@ -356,8 +356,12 @@ index b99cd02..ddbf1bf 100644
 +// chatluna: Cordis 4 bridge. Cordis 3 symbols/services that Koishi relies on are
 +// re-created here; the Context class itself is patched further below.
 +const kContextCurrent = Symbol.for("koishi.current");
++// Koishi's session predicate per context. Not `Context.filter`: Cordis 4 calls that on the event's thisArg with the
++// hook's context, so a filtered context emitting (as in `ctx.on`, which bails `internal/listener` with itself)
++// would feed a Context into a session predicate. Sessions bridge to it through `Session.prototype[Context.filter]`.
++const kFilter = Symbol.for("koishi.filter");
 +function kFilterHooks(hooks, thisArg) {
-+  return (hooks || []).filter((hook) => hook.global || !hook.ctx?.[cordis.Context.filter] || hook.ctx[cordis.Context.filter](thisArg));
++  return (hooks || []).filter((hook) => hook.global || !hook.ctx?.[kFilter] || hook.ctx[kFilter](thisArg));
 +}
 +function kRegister(ctx, hooks, name, callback, options = {}) {
 +  const hook = { ctx, callback, prepend: options.prepend === true };
@@ -420,7 +424,7 @@ index b99cd02..ddbf1bf 100644
  
  // src/filter.ts
  import { defineProperty } from "cosmokit";
-@@ -24,35 +128,38 @@ __name(property, "property");
+@@ -24,35 +132,38 @@ __name(property, "property");
  var FilterService = class {
    constructor(ctx) {
      this.ctx = ctx;
@@ -431,11 +435,11 @@ index b99cd02..ddbf1bf 100644
 -      runtime.ctx.filter = (session) => {
 -        return runtime.children.some((p) => p.ctx.filter(session));
 +    defineProperty(this, kContextCurrent, ctx);
-+    ctx.root[cordisSymbols.filter] ??= () => true;
++    ctx.root[kFilter] ??= () => true;
 +    ctx.on("internal/plugin", (fiber) => {
 +      if (!fiber.uid) return;
-+      const parentFilter = fiber.ctx[cordisSymbols.filter] ?? (() => true);
-+      fiber.ctx[cordisSymbols.filter] = (session) => {
++      const parentFilter = fiber.ctx[kFilter] ?? (() => true);
++      fiber.ctx[kFilter] = (session) => {
 +        return parentFilter(session);
        };
      });
@@ -447,33 +451,33 @@ index b99cd02..ddbf1bf 100644
 +  [cordisSymbols.tracker] = { property: "ctx" };
    any() {
 -    return this.ctx.extend({ filter: /* @__PURE__ */ __name(() => true, "filter") });
-+    return this.ctx.extend({ [cordisSymbols.filter]: () => true });
++    return this.ctx.extend({ [kFilter]: () => true });
    }
    never() {
 -    return this.ctx.extend({ filter: /* @__PURE__ */ __name(() => false, "filter") });
-+    return this.ctx.extend({ [cordisSymbols.filter]: () => false });
++    return this.ctx.extend({ [kFilter]: () => false });
    }
    union(arg) {
 -    const filter2 = typeof arg === "function" ? arg : arg.filter;
 -    return this.ctx.extend({ filter: /* @__PURE__ */ __name((s) => this.ctx.filter(s) || filter2(s), "filter") });
-+    const filter2 = typeof arg === "function" ? arg : arg[cordisSymbols.filter];
-+    return this.ctx.extend({ [cordisSymbols.filter]: (s) => this.ctx[cordisSymbols.filter](s) || filter2(s) });
++    const filter2 = typeof arg === "function" ? arg : arg[kFilter];
++    return this.ctx.extend({ [kFilter]: (s) => this.ctx[kFilter](s) || filter2(s) });
    }
    intersect(arg) {
 -    const filter2 = typeof arg === "function" ? arg : arg.filter;
 -    return this.ctx.extend({ filter: /* @__PURE__ */ __name((s) => this.ctx.filter(s) && filter2(s), "filter") });
-+    const filter2 = typeof arg === "function" ? arg : arg[cordisSymbols.filter];
-+    return this.ctx.extend({ [cordisSymbols.filter]: (s) => this.ctx[cordisSymbols.filter](s) && filter2(s) });
++    const filter2 = typeof arg === "function" ? arg : arg[kFilter];
++    return this.ctx.extend({ [kFilter]: (s) => this.ctx[kFilter](s) && filter2(s) });
    }
    exclude(arg) {
 -    const filter2 = typeof arg === "function" ? arg : arg.filter;
 -    return this.ctx.extend({ filter: /* @__PURE__ */ __name((s) => this.ctx.filter(s) && !filter2(s), "filter") });
-+    const filter2 = typeof arg === "function" ? arg : arg[cordisSymbols.filter];
-+    return this.ctx.extend({ [cordisSymbols.filter]: (s) => this.ctx[cordisSymbols.filter](s) && !filter2(s) });
++    const filter2 = typeof arg === "function" ? arg : arg[kFilter];
++    return this.ctx.extend({ [kFilter]: (s) => this.ctx[kFilter](s) && !filter2(s) });
    }
    user(...values) {
      return property(this.ctx, "userId", ...values);
-@@ -422,8 +529,8 @@ var Argv;
+@@ -422,8 +533,8 @@ var Argv;
  })(Argv || (Argv = {}));
  
  // src/middleware.ts
@@ -484,7 +488,7 @@ index b99cd02..ddbf1bf 100644
  import { h as h2 } from "@satorijs/core";
  
  // src/database.ts
-@@ -446,7 +553,7 @@ var Channel;
+@@ -446,7 +557,7 @@ var Channel;
  var KoishiDatabase = class {
    constructor(ctx) {
      this.ctx = ctx;
@@ -493,7 +497,7 @@ index b99cd02..ddbf1bf 100644
        getUser: "database.getUser",
        setUser: "database.setUser",
        createUser: "database.createUser",
-@@ -517,8 +624,21 @@ var KoishiDatabase = class {
+@@ -517,8 +628,21 @@ var KoishiDatabase = class {
    }
    async createUser(platform, pid, data) {
      const user = await this.create("user", data);
@@ -517,7 +521,7 @@ index b99cd02..ddbf1bf 100644
    }
    async getChannel(platform, id, modifier) {
      const data = await this.get("channel", { platform, id }, modifier);
-@@ -607,37 +727,29 @@ var Next;
+@@ -607,37 +731,29 @@ var Next;
    Next2.compose = compose;
    __name(compose, "compose");
  })(Next || (Next = {}));
@@ -566,7 +570,7 @@ index b99cd02..ddbf1bf 100644
        let ms = +attrs.value;
        for (let index = 0; index < 3; index++) {
          const major = Time[units[index]];
-@@ -653,6 +765,21 @@ var Processor = class {
+@@ -653,6 +769,21 @@ var Processor = class {
        }
        return Math.round(ms / Time.second) + " " + session.text("general.second");
      }, { session: true });
@@ -588,7 +592,7 @@ index b99cd02..ddbf1bf 100644
      ctx.before("attach", (session) => {
        for (const matcher of this._matchers) {
          this._executeMatcher(session, matcher);
-@@ -663,6 +790,8 @@ var Processor = class {
+@@ -663,6 +794,8 @@ var Processor = class {
    static {
      __name(this, "Processor");
    }
@@ -597,7 +601,7 @@ index b99cd02..ddbf1bf 100644
    _hooks = [];
    _sessions = /* @__PURE__ */ Object.create(null);
    _matchers = /* @__PURE__ */ new Set();
-@@ -670,12 +799,12 @@ var Processor = class {
+@@ -670,12 +803,12 @@ var Processor = class {
      if (typeof options !== "object") {
        options = { prepend: options };
      }
@@ -612,16 +616,16 @@ index b99cd02..ddbf1bf 100644
        return this._matchers.delete(matcher);
      });
    }
-@@ -683,7 +812,7 @@ var Processor = class {
+@@ -683,7 +816,7 @@ var Processor = class {
      const { stripped, quote } = session;
      const { appel, context, i18n, regex, fuzzy, pattern, response } = matcher;
      if ((appel || stripped.hasAt) && !stripped.appel) return;
 -    if (!context.filter(session)) return;
-+    if (!(context[cordisSymbols.filter]?.(session) ?? true)) return;
++    if (!(context[kFilter]?.(session) ?? true)) return;
      let content = stripped.content;
      if (quote?.content) content += " " + quote.content;
      let params = null;
-@@ -724,7 +853,7 @@ var Processor = class {
+@@ -724,7 +857,7 @@ var Processor = class {
    }
    async attach(session, next) {
      this.ctx.emit(session, "before-attach", session);
@@ -630,7 +634,7 @@ index b99cd02..ddbf1bf 100644
        if (!session.isDirect) {
          const channelFields = /* @__PURE__ */ new Set(["flag", "assignee", "guildId", "permissions", "locales"]);
          this.ctx.emit("before-attach-channel", session, channelFields);
-@@ -747,7 +876,7 @@ var Processor = class {
+@@ -747,7 +880,7 @@ var Processor = class {
    async _handleMessage(session) {
      if (session.selfId === session.userId) return;
      this._sessions[session.id] = session;
@@ -639,7 +643,7 @@ index b99cd02..ddbf1bf 100644
      let index = 0;
      const next = /* @__PURE__ */ __name(async (callback) => {
        try {
-@@ -778,7 +907,14 @@ ${stack}`);
+@@ -778,7 +911,14 @@ ${stack}`);
        await session.user?.$update();
        await session.channel?.$update();
        await session.guild?.$update();
@@ -655,7 +659,7 @@ index b99cd02..ddbf1bf 100644
      }
    }
  };
-@@ -843,7 +979,7 @@ var Command = class _Command extends Argv.CommandBase {
+@@ -843,7 +983,7 @@ var Command = class _Command extends Argv.CommandBase {
      ctx.$commander._commandList.push(this);
    }
    get caller() {
@@ -664,16 +668,16 @@ index b99cd02..ddbf1bf 100644
    }
    get displayName() {
      return Object.keys(this._aliases)[0];
-@@ -971,7 +1107,7 @@ var Command = class _Command extends Argv.CommandBase {
+@@ -971,7 +1111,7 @@ var Command = class _Command extends Argv.CommandBase {
      return this;
    }
    match(session) {
 -    return this.ctx.filter(session);
-+    return this.ctx[cordisSymbols.filter]?.(session) ?? true;
++    return this.ctx[kFilter]?.(session) ?? true;
    }
    check(callback, append = false) {
      return this.before(callback, append);
-@@ -982,7 +1118,7 @@ var Command = class _Command extends Argv.CommandBase {
+@@ -982,7 +1122,7 @@ var Command = class _Command extends Argv.CommandBase {
      } else {
        this._checkers.unshift(callback);
      }
@@ -682,7 +686,7 @@ index b99cd02..ddbf1bf 100644
      return this;
    }
    action(callback, prepend = false) {
-@@ -991,7 +1127,7 @@ var Command = class _Command extends Argv.CommandBase {
+@@ -991,7 +1131,7 @@ var Command = class _Command extends Argv.CommandBase {
      } else {
        this._actions.push(callback);
      }
@@ -691,7 +695,7 @@ index b99cd02..ddbf1bf 100644
      return this;
    }
    /** @deprecated */
-@@ -1095,6 +1231,43 @@ __name(toStringType, "toStringType");
+@@ -1095,6 +1235,43 @@ __name(toStringType, "toStringType");
  // src/command/validate.ts
  import { isNullable as isNullable2 } from "cosmokit";
  function validate(ctx) {
@@ -735,7 +739,7 @@ index b99cd02..ddbf1bf 100644
    ctx.permissions.define("command:(name)", {
      depends: /* @__PURE__ */ __name(({ name }) => {
        const command = ctx.$commander.get(name);
-@@ -1130,50 +1303,19 @@ function validate(ctx) {
+@@ -1130,50 +1307,19 @@ function validate(ctx) {
        return command.config.showWarning ? session.text(message, param) : "";
      }
      __name(sendHint, "sendHint");
@@ -792,7 +796,7 @@ index b99cd02..ddbf1bf 100644
  
  // src/command/index.ts
  var isArray = Array.isArray;
-@@ -1182,7 +1324,7 @@ var Commander = class {
+@@ -1182,7 +1328,7 @@ var Commander = class {
    constructor(ctx, config = {}) {
      this.ctx = ctx;
      this.config = config;
@@ -801,7 +805,7 @@ index b99cd02..ddbf1bf 100644
      ctx.plugin(validate);
      ctx.before("parse", (content, session) => {
        const { isDirect, stripped: { prefix, appel } } = session;
-@@ -1255,7 +1397,7 @@ var Commander = class {
+@@ -1255,7 +1401,7 @@ var Commander = class {
        permissions: Schema2.array(String).role("perms").default(["authority:0"]).description("权限继承。"),
        dependencies: Schema2.array(String).role("perms").description("权限依赖。")
      }), 1e3);
@@ -810,7 +814,7 @@ index b99cd02..ddbf1bf 100644
        const bots = ctx.bots.filter((v) => v.status === Universal3.Status.ONLINE && v.updateCommands);
        bots.forEach((bot) => this.updateCommands(bot));
      });
-@@ -1334,6 +1476,8 @@ var Commander = class {
+@@ -1334,6 +1480,8 @@ var Commander = class {
    static {
      __name(this, "Commander");
    }
@@ -819,7 +823,7 @@ index b99cd02..ddbf1bf 100644
    _commandList = [];
    defineElementDomain(name, key = name, type = name) {
      this.domain(name, (source, session) => {
-@@ -1456,13 +1600,14 @@ var Commander = class {
+@@ -1456,13 +1604,14 @@ var Commander = class {
      });
      Object.assign(parent.config, config);
      created.forEach((command) => this.ctx.emit("command-added", command));
@@ -837,7 +841,7 @@ index b99cd02..ddbf1bf 100644
      return this.ctx.set(service, { transform, ...options });
    }
    resolveDomain(type) {
-@@ -1533,10 +1678,10 @@ import { fallback, LocaleTree } from "@koishijs/i18n-utils";
+@@ -1533,10 +1682,10 @@ import { fallback, LocaleTree } from "@koishijs/i18n-utils";
  import { h as h4, Logger as Logger2, Schema as Schema3 } from "@satorijs/core";
  
  // src/locales/zh-CN.yml
@@ -850,7 +854,7 @@ index b99cd02..ddbf1bf 100644
  
  // src/i18n.ts
  var logger2 = new Logger2("i18n");
-@@ -1570,6 +1715,8 @@ var I18n = class {
+@@ -1570,6 +1719,8 @@ var I18n = class {
    static {
      __name(this, "I18n");
    }
@@ -859,7 +863,7 @@ index b99cd02..ddbf1bf 100644
    _data = {};
    _presets = {};
    locales;
-@@ -1613,7 +1760,7 @@ var I18n = class {
+@@ -1613,7 +1764,7 @@ var I18n = class {
      const dict = this._data[locale] ||= {};
      const paths = [...typeof args[0] === "string" ? this.set(locale, args[0] + ".", args[1]) : this.set(locale, "", args[0])];
      this.ctx.emit("internal/i18n");
@@ -868,7 +872,7 @@ index b99cd02..ddbf1bf 100644
        for (const path2 of paths) {
          delete dict[path2];
        }
-@@ -1680,7 +1827,7 @@ var I18n = class {
+@@ -1680,7 +1831,7 @@ var I18n = class {
  import { observe } from "@koishijs/utils";
  import { isNullable as isNullable4, makeArray as makeArray2 } from "cosmokit";
  import { h as h5, Logger as Logger3 } from "@satorijs/core";
@@ -877,7 +881,7 @@ index b99cd02..ddbf1bf 100644
  var logger3 = new Logger3("session");
  function collectFields(argv, collectors, fields) {
    for (const collector of collectors) {
-@@ -1700,7 +1847,8 @@ var KoishiSession = class {
+@@ -1700,7 +1851,8 @@ var KoishiSession = class {
      __name(this, "KoishiSession");
    }
    constructor(ctx) {
@@ -887,16 +891,16 @@ index b99cd02..ddbf1bf 100644
        resolve: "session.resolve",
        stripped: "session.stripped",
        username: "session.username",
-@@ -1969,7 +2117,7 @@ var KoishiSession = class {
+@@ -1969,7 +2121,7 @@ var KoishiSession = class {
        }
      }
      const { command } = argv;
 -    if (!command.ctx.filter(this)) return [];
-+    if (!(command.ctx[cordisSymbols.filter]?.(this) ?? true)) return [];
++    if (!(command.ctx[kFilter]?.(this) ?? true)) return [];
      if (this.app.database) {
        if (!this.isDirect) {
          await this.observeChannel(this.collect("channel", argv, /* @__PURE__ */ new Set(["permissions", "locales"])));
-@@ -2058,8 +2206,7 @@ var logger4 = new Logger4("app");
+@@ -2058,8 +2210,7 @@ var logger4 = new Logger4("app");
  var Permissions = class {
    constructor(ctx) {
      this.ctx = ctx;
@@ -906,7 +910,7 @@ index b99cd02..ddbf1bf 100644
      this.define("authority:(value)", {
        check: /* @__PURE__ */ __name(({ value }, { user }) => {
          return !user || user.authority >= +value;
-@@ -2076,6 +2223,8 @@ var Permissions = class {
+@@ -2076,6 +2227,8 @@ var Permissions = class {
    static {
      __name(this, "Permissions");
    }
@@ -915,7 +919,7 @@ index b99cd02..ddbf1bf 100644
    store = [];
    define(pattern, options) {
      const entry = {
-@@ -2167,7 +2316,8 @@ var KoishiBot = class {
+@@ -2167,7 +2320,8 @@ var KoishiBot = class {
      __name(this, "KoishiBot");
    }
    constructor(ctx) {
@@ -925,7 +929,7 @@ index b99cd02..ddbf1bf 100644
        getGuildMemberMap: "bot.getGuildMemberMap",
        broadcast: "bot.broadcast"
      });
-@@ -2238,9 +2388,11 @@ var SchemaService = class {
+@@ -2238,9 +2392,11 @@ var SchemaService = class {
    static {
      __name(this, "SchemaService");
    }
@@ -938,7 +942,7 @@ index b99cd02..ddbf1bf 100644
      const target = this.get(name);
      const index = target.list.findIndex((a) => a[kSchemaOrder] < order);
      schema[kSchemaOrder] = order;
-@@ -2250,7 +2402,7 @@ var SchemaService = class {
+@@ -2250,7 +2406,7 @@ var SchemaService = class {
        target.list.push(schema);
      }
      this.ctx.emit("internal/schema", name);
@@ -947,7 +951,7 @@ index b99cd02..ddbf1bf 100644
        remove3(target.list, schema);
        this.ctx.emit("internal/schema", name);
      });
-@@ -2259,10 +2411,10 @@ var SchemaService = class {
+@@ -2259,10 +2415,10 @@ var SchemaService = class {
      return this._data[name] ||= Schema4.intersect([]);
    }
    set(name, schema) {
@@ -960,7 +964,7 @@ index b99cd02..ddbf1bf 100644
        delete this._data[name];
        this.ctx.emit("internal/schema", name);
      });
-@@ -2272,6 +2424,95 @@ var SchemaService = class {
+@@ -2272,6 +2428,95 @@ var SchemaService = class {
  // src/context.ts
  import { Adapter as Adapter2, Bot as Bot3, Element, h as h6, HTTP as HTTP2, Logger as Logger5, MessageEncoder, Messenger, Quester, Schema as Schema6, segment, Universal as Universal5, z } from "@satorijs/core";
  import { resolveConfig } from "cordis";
@@ -982,7 +986,7 @@ index b99cd02..ddbf1bf 100644
 +  ctx.accessor("filter", {
 +    get() {
 +      const self = this;
-+      return (session) => self[cordisSymbols.filter]?.(session) ?? true;
++      return (session) => self[kFilter]?.(session) ?? true;
 +    }
 +  });
 +  ctx.accessor("app", {
@@ -1056,7 +1060,7 @@ index b99cd02..ddbf1bf 100644
  var Context = class extends satori.Context {
    static {
      __name(this, "Context");
-@@ -2279,31 +2520,8 @@ var Context = class extends satori.Context {
+@@ -2279,31 +2524,8 @@ var Context = class extends satori.Context {
    static shadow = /* @__PURE__ */ Symbol.for("session.shadow");
    constructor(config = {}) {
      super(config);
@@ -1090,7 +1094,7 @@ index b99cd02..ddbf1bf 100644
    }
    /** @deprecated use `ctx.root` instead */
    get app() {
-@@ -2313,25 +2531,6 @@ var Context = class extends satori.Context {
+@@ -2313,25 +2535,6 @@ var Context = class extends satori.Context {
    get options() {
      return this.root.config;
    }
@@ -1116,7 +1120,7 @@ index b99cd02..ddbf1bf 100644
    before(name, listener, append = false) {
      const seg = name.split("/");
      seg[seg.length - 1] = "before-" + seg[seg.length - 1];
-@@ -2339,19 +2538,36 @@ var Context = class extends satori.Context {
+@@ -2339,19 +2542,36 @@ var Context = class extends satori.Context {
    }
  };
  var Koishi = class extends cordis.Service {
@@ -1156,11 +1160,11 @@ index b99cd02..ddbf1bf 100644
 -satori.Session.prototype[Context.filter] = function(ctx) {
 -  return ctx.filter(this);
 +satori.Session.prototype[cordis.Context.filter] = function(ctx) {
-+  return ctx[cordisSymbols.filter]?.(this) ?? true;
++  return ctx[kFilter]?.(this) ?? true;
  };
  ((Context3) => {
    Context3.Config = Schema5.intersect([
-@@ -2399,12 +2615,15 @@ var Service3 = class extends satori.Service {
+@@ -2399,12 +2619,15 @@ var Service3 = class extends satori.Service {
      this.ctx = new Context();
    }
  };
@@ -1176,7 +1180,7 @@ index b99cd02..ddbf1bf 100644
    Context as App,
    Argv,
    Bot3 as Bot,
-@@ -2426,6 +2645,7 @@ export {
+@@ -2426,6 +2649,7 @@ export {
    Schema6 as Schema,
    SchemaService,
    Service3 as Service,

@@ -17,7 +17,11 @@
     {
       "name": "@cordisjs/plugin-http",
       "version": "1.5.2",
-      "description": "Use resolveIntercept, which Cordis 4 renamed from resolveConfig"
+      "description": "Use resolveIntercept, which Cordis 4 renamed from resolveConfig; merge request headers per name and send the global FormData as multipart",
+      "fixes": [
+        "ChatLunaLab/v2-mirror#140",
+        "ChatLunaLab/v2-mirror#145"
+      ]
     },
     {
       "name": "@cordisjs/plugin-loader",
@@ -64,7 +68,10 @@
     {
       "name": "koishi-plugin-adapter-onebot",
       "version": "6.9.5",
-      "description": "Import Satori directly and inject http, satori and timer"
+      "description": "Import Satori directly and inject http, satori and timer; mark friend_recall as a direct channel like private messages",
+      "fixes": [
+        "ChatLunaLab/v2-mirror#159"
+      ]
     }
   ],
   "aliases": {

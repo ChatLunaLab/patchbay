@@ -78,7 +78,7 @@ index 120885c..d5ba237 100644
          'onebot/message-reactions-updated'(session: Session): void;
          'onebot/channel-updated'(session: Session): void;
 diff --git a/lib/index.js b/lib/index.js
-index 996a9c8..5b58e18 100644
+index 996a9c8..cf1e9bd 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -46,10 +46,10 @@ __export(index_exports, {
@@ -108,7 +108,15 @@ index 996a9c8..5b58e18 100644
  var SafetyLevel = /* @__PURE__ */ ((SafetyLevel2) => {
    SafetyLevel2[SafetyLevel2["safe"] = 0] = "safe";
    SafetyLevel2[SafetyLevel2["unknown"] = 1] = "unknown";
-@@ -594,7 +594,7 @@ var HttpServer = class extends import_koishi3.Adapter {
+@@ -466,6 +466,7 @@ async function adaptSession(bot, data) {
+         session.type = "message-deleted";
+         session.subtype = "private";
+         session.channelId = `private:${session.userId}`;
++        session.isDirect = true;
+         break;
+       // from go-cqhttp source code, but not mentioned in official docs
+       case "guild_channel_recall":
+@@ -594,7 +595,7 @@ var HttpServer = class extends import_koishi3.Adapter {
  })(HttpServer || (HttpServer = {}));
  
  // src/ws.ts
@@ -117,7 +125,7 @@ index 996a9c8..5b58e18 100644
  var WsClient = class extends import_koishi4.Adapter.WsClient {
    static {
      __name(this, "WsClient");
-@@ -734,10 +734,10 @@ function accept(socket, bot) {
+@@ -734,10 +735,10 @@ function accept(socket, bot) {
  __name(accept, "accept");
  
  // src/bot/base.ts
@@ -130,7 +138,7 @@ index 996a9c8..5b58e18 100644
  var import_node_url = require("node:url");
  var State = class {
    constructor(type) {
-@@ -830,7 +830,7 @@ var OneBotMessageEncoder = class extends import_koishi5.MessageEncoder {
+@@ -830,7 +831,7 @@ var OneBotMessageEncoder = class extends import_koishi5.MessageEncoder {
    }
    async sendFile(attrs) {
      const src = attrs.src || attrs.url;
@@ -139,7 +147,7 @@ index 996a9c8..5b58e18 100644
      const file = src.startsWith("file:") ? (0, import_node_url.fileURLToPath)(src) : await this.bot.internal.downloadFile(src);
      if (this.session.event.channel.type === import_koishi5.Universal.Channel.Type.DIRECT) {
        await this.bot.internal.uploadPrivateFile(
-@@ -977,7 +977,7 @@ var BaseBot2 = class extends import_koishi6.Bot {
+@@ -977,7 +978,7 @@ var BaseBot2 = class extends import_koishi6.Bot {
      __name(this, "BaseBot");
    }
    static MessageEncoder = OneBotMessageEncoder;
@@ -148,7 +156,7 @@ index 996a9c8..5b58e18 100644
    parent;
    internal;
    async createDirectChannel(userId) {
-@@ -1112,7 +1112,7 @@ var QQGuildBot = class extends BaseBot2 {
+@@ -1112,7 +1113,7 @@ var QQGuildBot = class extends BaseBot2 {
  };
  
  // src/bot/cqcode.ts

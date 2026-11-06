@@ -1,13 +1,28 @@
 diff --git a/lib/index.js b/lib/index.js
-index 3acbdff..56c9913 100644
+index 3acbdff..0fec2d3 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -202,7 +202,7 @@ var Http = class _Http extends Service {
+@@ -202,7 +202,9 @@ var Http = class _Http extends Service {
      });
    }
    resolveConfig(init) {
 -    return this[Service.resolveConfig](this.config, init);
-+    return { ...this[Service.resolveIntercept](), ...this.config, ...init };
++    // Merge headers per name, so a request's own `headers` (undefined or a Headers instance too) layers over the client's.
++    const configs = [this[Service.resolveIntercept](), this.config, init];
++    return Object.assign({}, ...configs, { headers: Object.fromEntries(configs.flatMap((config) => [...new Headers(config?.headers)])) });
    }
    resolveURL(url, config, isWebSocket = false) {
      try {
+@@ -281,7 +283,11 @@ var Http = class _Http extends Service {
+       }
+       const response = await this.ctx.waterfall(this, "http/fetch", url, init, config, () => {
+         this.ctx.logger("http:request").debug("%C %s", method, url.href);
+-        return this.undici.fetch(url, init);
++        // The undici package serializes only its own FormData and would send the global one as "[object FormData]".
++        if (!(init.body instanceof FormData) || init.body instanceof this.undici.FormData) return this.undici.fetch(url, init);
++        const form = new this.undici.FormData();
++        for (const [name, value] of init.body) form.append(name, value);
++        return this.undici.fetch(url, { ...init, body: form });
+       }).catch((cause) => {
+         this.ctx.logger("http:request").debug("%C %s failed: %o", method, url.href, cause);
+         if (_Http.Error.is(cause)) throw cause;

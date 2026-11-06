@@ -14,7 +14,7 @@ index 4362cf8..ae92999 100644
      prelude?: EntryOptions[];
  }
 diff --git a/lib/worker/index.js b/lib/worker/index.js
-index 39fe113..f0a2566 100644
+index 39fe113..82cd9d7 100644
 --- a/lib/worker/index.js
 +++ b/lib/worker/index.js
 @@ -56,6 +56,12 @@ function* apply(ctx, config = {}) {
@@ -49,7 +49,7 @@ index 39fe113..f0a2566 100644
 +  // Ready once every entry has finished loading (failed plugins included; they are logged).
 +  if (config.daemon.enabled) {
 +    await ctx.loader.await();
-+    send({ type: "ready" });
++    process.send({ type: "ready" });
 +  }
  }
  __name(start, "start");

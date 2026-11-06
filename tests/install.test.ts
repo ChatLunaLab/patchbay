@@ -37,7 +37,7 @@ function run(dir: string, command: string, args: string[]): string {
 }
 
 function assertPatched(dir: string): void {
-  assert.match(readFileSync(join(dir, 'node_modules/@cordisjs/plugin-http/lib/index.js'), 'utf8'), /resolveIntercept\]\(\), \.\.\.this\.config/)
+  assert.match(readFileSync(join(dir, 'node_modules/@cordisjs/plugin-http/lib/index.js'), 'utf8'), /\[this\[Service\.resolveIntercept\]\(\), this\.config, init\]/)
   // `minato` is aliased to the patched @cordisjs/plugin-database.
   assert.match(readFileSync(join(dir, 'node_modules/minato/lib/index.js'), 'utf8'), /if \(name === "database"\) this\.refresh\(\)/)
 }

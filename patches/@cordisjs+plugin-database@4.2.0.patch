@@ -1,5 +1,5 @@
 diff --git a/lib/index.js b/lib/index.js
-index 47b64a6..46865f0 100644
+index 4f2f7ae..b958d11 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -985,6 +985,10 @@ var Database = class _Database extends Service {

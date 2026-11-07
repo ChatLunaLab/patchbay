@@ -7,7 +7,7 @@
     },
     {
       "name": "@cordisjs/plugin-database",
-      "version": "4.1.1",
+      "version": "4.2.0",
       "description": "Prepare tables extended while the driver was still starting; also installed as minato"
     },
     {
@@ -31,7 +31,7 @@
     },
     {
       "name": "@cordisjs/unyaml",
-      "version": "2.0.3",
+      "version": "3.0.0",
       "description": "Register the Vite YAML plugin through rolldownOptions instead of the retired esbuildOptions"
     },
     {

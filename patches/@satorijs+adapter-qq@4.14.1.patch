@@ -1,0 +1,107 @@
+diff --git a/lib/index.cjs b/lib/index.cjs
+index 4e1bd28..a19e6b9 100644
+--- a/lib/index.cjs
++++ b/lib/index.cjs
+@@ -293,6 +293,7 @@ var decodeGuildMember = /* @__PURE__ */ __name((member) => ({
+   roles: member.roles?.map((id) => ({ id })),
+   joinedAt: new Date(member.joined_at).valueOf()
+ }), "decodeGuildMember");
++var attachmentUrl = /* @__PURE__ */ __name((url) => /^[a-z][a-z\d+.-]*:/i.test(url) ? url : "https://" + url.replace(/^\/\//, ""), "attachmentUrl");
+ var decodeGroupMessageContent = /* @__PURE__ */ __name((content, attachments = [], attachedFace = /* @__PURE__ */ new Set()) => {
+   const elements = [];
+   let lastIndex = 0;
+@@ -306,7 +307,7 @@ var decodeGroupMessageContent = /* @__PURE__ */ __name((content, attachments = [
+       case 6: {
+         const imageAttachment = attachments[+faceId];
+         if (imageAttachment) {
+-          elements.push(import_core.h.image(imageAttachment.url, {
++          elements.push(import_core.h.image(attachmentUrl(imageAttachment.url), {
+             width: imageAttachment.width,
+             height: imageAttachment.height
+           }));
+@@ -341,20 +342,32 @@ var decodeAttachments = /* @__PURE__ */ __name((attachments, attachedFace = /* @
+   const elements = [];
+   for (const [index, attachment] of attachments.entries()) {
+     if (attachment.content_type === "file") {
+-      elements.push(import_core.h.file(attachment.url, {
++      elements.push(import_core.h.file(attachmentUrl(attachment.url), {
+         filename: attachment.filename
+       }));
+     } else if (attachment.content_type.startsWith("image/")) {
+       if (attachedFace.has(index)) continue;
+-      elements.push(import_core.h.image(attachment.url, { width: attachment.width, height: attachment.height }));
++      elements.push(import_core.h.image(attachmentUrl(attachment.url), { width: attachment.width, height: attachment.height }));
+     } else if (attachment.content_type === "voice") {
+-      elements.push(import_core.h.audio(attachment.url));
++      elements.push(import_core.h.audio(attachmentUrl(attachment.url)));
+     } else if (attachment.content_type.startsWith("video")) {
+-      elements.push(import_core.h.video(attachment.url, { width: attachment.width, height: attachment.height }));
++      elements.push(import_core.h.video(attachmentUrl(attachment.url), { width: attachment.width, height: attachment.height }));
+     }
+   }
+   return elements;
+ }, "decodeAttachments");
++var decodeElementContent = /* @__PURE__ */ __name((element) => {
++  const attached = /* @__PURE__ */ new Set();
++  return [
++    ...decodeGroupMessageContent(element.content ?? "", element.attachments ?? [], attached),
++    ...decodeAttachments(element.attachments ?? [], attached)
++  ];
++}, "decodeElementContent");
++var decodeRecord = /* @__PURE__ */ __name((elements) => import_core.h("message", { forward: true }, elements.map((element) => import_core.h("message", {}, [
++  ...element.author?.username ? [import_core.h("author", { name: element.author.username })] : [],
++  ...decodeElementContent(element),
++  ...element.msg_elements?.length ? [decodeRecord(element.msg_elements)] : []
++]))), "decodeRecord");
+ function decodeGroupMessage(bot, data, message = {}, payload = message) {
+   message.id = data.id;
+   const attachedFace = /* @__PURE__ */ new Set();
+@@ -376,16 +389,22 @@ function decodeGroupMessage(bot, data, message = {}, payload = message) {
+     }, "text")
+   });
+   message.elements.push(...decodeAttachments(data.attachments ?? [], attachedFace));
+-  if (data.message_type === Message.Type.QUOTE) {
+-    const quoted = [];
+-    const quotedAttached = /* @__PURE__ */ new Set();
+-    quoted.push(...decodeGroupMessageContent(data.msg_elements[0].content, data.msg_elements[0].attachments ?? [], quotedAttached));
+-    quoted.push(...decodeAttachments(data.msg_elements[0].attachments ?? [], quotedAttached));
++  const ark = data.ark_data ?? data.ark;
++  if (+data.message_type === Message.Type.ARK && ark) {
++    message.elements.push(import_core.h("json", { data: JSON.stringify(ark) }));
++  }
++  if (+data.message_type === 102 && data.msg_elements?.length) {
++    message.elements.push(decodeRecord(data.msg_elements));
++  }
++  if (+data.message_type === Message.Type.QUOTE) {
++    const quoted = data.msg_elements?.[0];
++    const id = quoted?.msg_idx ?? data.message_scene?.ext?.find((item) => item.startsWith("ref_msg_idx="))?.slice("ref_msg_idx=".length);
+     message.quote = {
++      ...id ? { id } : {},
+       member: {
+-        nick: data.msg_elements[0].author?.username
++        nick: quoted?.author?.username
+       },
+-      elements: quoted
++      elements: quoted ? decodeElementContent(quoted) : []
+     };
+   }
+   message.content = message.elements.join("");
+@@ -395,7 +414,8 @@ function decodeGroupMessage(bot, data, message = {}, payload = message) {
+     date = data.timestamp.slice(0, data.timestamp.indexOf("m=")).trim().replace(/\+(\d{4}) CST/, "GMT+$1");
+   }
+   payload.timestamp = new Date(date).valueOf();
+-  payload.guild = data.group_id && { id: data.group_id };
++  const groupId = data.group_id ?? data.group_openid;
++  payload.guild = groupId && { id: groupId };
+   payload.user = { id: data.author.id, avatar: `https://q.qlogo.cn/qqapp/${bot.config.id}/${data.author.id}/640` };
+   if (data.author.username) payload.user.name = data.author.username;
+   if (data.author.member_role) payload.member = { roles: [{ id: data.author.member_role }] };
+@@ -407,7 +427,7 @@ async function decodeMessage(bot, data, message = {}, payload = message) {
+   message.content = (data.content ?? "").replace(/<@!(\d+)>/g, (_, $1) => import_core.h.at($1).toString());
+   const { attachments = [] } = data;
+   if (attachments.length && !/\s$/.test(message.content)) message.content += " ";
+-  message.content = attachments.filter(({ content_type }) => content_type.startsWith("image")).reduce((content, attachment) => content + import_core.h.image("https://" + attachment.url), message.content);
++  message.content = attachments.filter(({ content_type }) => content_type.startsWith("image")).reduce((content, attachment) => content + import_core.h.image(attachmentUrl(attachment.url)), message.content);
+   message.elements = import_core.h.parse(message.content);
+   message.elements = import_core.h.transform(message.elements, {
+     text: /* @__PURE__ */ __name((attrs) => import_core.h.unescape(attrs.content), "text")

@@ -62,6 +62,19 @@
       }
     },
     {
+      "name": "@satorijs/adapter-qq",
+      "version": "4.14.1",
+      "description": "Decode official QQ group_openid targets, ARK cards, nested chat records and index-only quotes; keep absolute channel image URLs",
+      "fixes": [
+        "ChatLunaLab/v2-mirror#84",
+        "ChatLunaLab/v2-mirror#93",
+        "ChatLunaLab/v2-mirror#134",
+        "ChatLunaLab/v2-mirror#135",
+        "ChatLunaLab/v2-mirror#136",
+        "ChatLunaLab/v2-mirror#139"
+      ]
+    },
+    {
       "name": "koishi-plugin-adapter-onebot",
       "version": "6.9.5",
       "description": "Import Satori directly and inject http, satori and timer; mark friend_recall as a direct channel like private messages",

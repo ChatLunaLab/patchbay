@@ -1,0 +1,116 @@
+diff --git a/lib/index.cjs b/lib/index.cjs
+index 01364de..822374f 100644
+--- a/lib/index.cjs
++++ b/lib/index.cjs
+@@ -244,10 +244,11 @@ async function handleUpdate(update, bot) {
+     session.content = command + session.content.slice(group.length);
+   } else if (message) {
+     if (update.message?.media_group_id) {
+-      if (!mediaGroupMap.has(update.message.media_group_id)) {
+-        mediaGroupMap.set(update.message.media_group_id, [/* @__PURE__ */ new Date(), []]);
++      const groupKey = `${bot.selfId}:${update.message.chat.id}:${update.message.media_group_id}`;
++      if (!mediaGroupMap.has(groupKey)) {
++        mediaGroupMap.set(groupKey, [/* @__PURE__ */ new Date(), []]);
+       }
+-      const [, updates] = mediaGroupMap.get(update.message.media_group_id);
++      const [, updates] = mediaGroupMap.get(groupKey);
+       session.type = update.message || update.channel_post ? "message" : "message-updated";
+       await decodeMessage(bot, message, session.event.message = {}, session.event);
+       updates.push({
+@@ -255,10 +256,10 @@ async function handleUpdate(update, bot) {
+         elements: session.event.message.elements
+       });
+       const thisUpdateTime = /* @__PURE__ */ new Date();
+-      mediaGroupMap.set(update.message.media_group_id, [thisUpdateTime, updates]);
++      mediaGroupMap.set(groupKey, [thisUpdateTime, updates]);
+       await new Promise((resolve) => setTimeout(resolve, 1200));
+-      if (mediaGroupMap.get(update.message.media_group_id)[0] === thisUpdateTime) {
+-        mediaGroupMap.delete(update.message.media_group_id);
++      if (mediaGroupMap.get(groupKey)[0] === thisUpdateTime) {
++        mediaGroupMap.delete(groupKey);
+         session.event.message.elements = updates.sort((a, b) => a.id - b.id).reduce((acc, cur) => acc.concat(cur.elements), []);
+         session.event.message.content = session.event.message.elements.join("");
+         session.event.message.id = Math.min(...updates.map((e) => e.id)).toString();
+@@ -310,7 +311,7 @@ async function handleUpdate(update, bot) {
+           name: data.chat.title
+         };
+         session.event.channel = {
+-          id: data.is_topic_message ? data.message_thread_id.toString() : data.chat.id.toString(),
++          id: data.is_topic_message ? `${data.chat.id}:${data.message_thread_id}` : data.chat.id.toString(),
+           type: import_core.Universal.Channel.Type.TEXT
+         };
+       }
+@@ -366,7 +367,7 @@ async function decodeMessage(bot, data, message, payload = message) {
+         if (attr.includes("code")) ele = (0, import_core.h)("code", {}, ele);
+         if (attr.includes("pre")) ele = (0, import_core.h)("pre", {}, ele);
+         if (attr.includes("spoiler")) ele = (0, import_core.h)("spl", {}, ele);
+-        if (attr.includes("mention")) ele = (0, import_core.h)("at", { name: content.slice(1) });
++        if (attr.includes("mention")) ele = content.slice(1) === bot.user?.name ? (0, import_core.h)("at", { id: bot.selfId, name: content.slice(1) }) : (0, import_core.h)("at", { name: content.slice(1) });
+         if (url) ele = (0, import_core.h)("a", { href: url }, ele);
+         if (user) ele = (0, import_core.h)("at", { id: user.id, name: user.username }, ele);
+         if (content === "\n") ele = (0, import_core.h)("br");
+@@ -394,7 +395,15 @@ async function decodeMessage(bot, data, message, payload = message) {
+     segments.push((0, import_core.h)(type, attrs));
+   }, "addResource");
+   if (data.location) {
+-    segments.push((0, import_core.h)("location", { lat: data.location.latitude, lon: data.location.longitude }));
++    segments.push((0, import_core.h)("location", { lat: data.location.latitude, lon: data.location.longitude, title: data.venue?.title, address: data.venue?.address }));
++  } else if (data.contact) {
++    const { contact } = data;
++    segments.push((0, import_core.h)("telegram:contact", { name: [contact.first_name, contact.last_name].filter(Boolean).join(" "), phone: contact.phone_number, id: contact.user_id?.toString() }));
++  } else if (data.poll) {
++    const { poll } = data;
++    segments.push((0, import_core.h)("telegram:poll", { question: poll.question, type: poll.type, multiple: poll.allows_multiple_answers, closed: poll.is_closed }, poll.options.map((option) => (0, import_core.h)("option", { text: option.text, votes: option.voter_count }))));
++  } else if (data.dice) {
++    segments.push((0, import_core.h)("telegram:dice", { emoji: data.dice.emoji, value: data.dice.value }));
+   } else if (data.photo) {
+     const photo = data.photo.sort((s1, s2) => s2.file_size - s1.file_size)[0];
+     segments.push((0, import_core.h)("img", await bot.$getFileFromId(photo.file_id)));
+@@ -442,7 +451,7 @@ async function decodeMessage(bot, data, message, payload = message) {
+     };
+     payload.member = {};
+     payload.channel = {
+-      id: data.is_topic_message ? data.message_thread_id.toString() : data.chat.id.toString(),
++      id: data.is_topic_message ? `${data.chat.id}:${data.message_thread_id}` : data.chat.id.toString(),
+       type: import_core.Universal.Channel.Type.TEXT
+     };
+   }
+@@ -461,9 +470,12 @@ var TelegramMessageEncoder = class extends import_core2.MessageEncoder {
+   mode = "default";
+   rows = [];
+   async prepare() {
+-    const chat_id = this.session.guildId || this.channelId;
++    const [chat, thread] = this.channelId.split(":");
++    const chat_id = thread ? chat : this.session.guildId || this.channelId;
+     this.payload = { chat_id, parse_mode: "html", caption: "" };
+-    if (this.session.guildId && this.channelId !== this.session.guildId) {
++    if (thread) {
++      this.payload.message_thread_id = +thread;
++    } else if (this.session.guildId && this.channelId !== this.session.guildId) {
+       this.payload.message_thread_id = +this.channelId;
+     }
+   }
+@@ -564,8 +576,8 @@ var TelegramMessageEncoder = class extends import_core2.MessageEncoder {
+           formData.append("chat_id", this.payload.chat_id);
+           formData.append("caption", this.payload.caption);
+           formData.append("parse_mode", this.payload.parse_mode);
+-          formData.append("reply_to_message_id", this.payload.reply_to_message_id);
+-          formData.append("message_thread_id", this.payload.message_thread_id);
++          if (this.payload.reply_to_message_id !== undefined) formData.append("reply_to_message_id", this.payload.reply_to_message_id);
++          if (this.payload.message_thread_id !== undefined) formData.append("message_thread_id", this.payload.message_thread_id);
+           formData.append("has_spoiler", files[0].element.attrs.spoiler ? "true" : "false");
+           formData.append(dataKey, "attach://" + files[0].filename);
+           formData.append(files[0].filename, new Blob([files[0].data], { type: files[0].mime }), files[0].filename);
+@@ -874,10 +886,12 @@ var TelegramBot = class _TelegramBot extends import_core5.Bot {
+     this.online();
+   }
+   async deleteMessage(chat_id, message_id) {
++    chat_id = chat_id.split(":")[0];
+     message_id = +message_id;
+     await this.internal.deleteMessage({ chat_id, message_id });
+   }
+   async editMessage(chat_id, message_id, content) {
++    chat_id = chat_id.split(":")[0];
+     message_id = +message_id;
+     const payload = {
+       chat_id,

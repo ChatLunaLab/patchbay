@@ -85,6 +85,18 @@
       ]
     },
     {
+      "name": "@satorijs/adapter-telegram",
+      "version": "4.5.11",
+      "description": "Mention the bot by username, decode contacts, polls, dice and venues, scope albums and forum topics to their chat, and omit missing ids from uploads",
+      "fixes": [
+        "ChatLunaLab/v2-mirror#146",
+        "ChatLunaLab/v2-mirror#148",
+        "ChatLunaLab/v2-mirror#149",
+        "ChatLunaLab/v2-mirror#151",
+        "ChatLunaLab/v2-mirror#164"
+      ]
+    },
+    {
       "name": "koishi-plugin-adapter-onebot",
       "version": "6.9.5",
       "description": "Import Satori directly and inject http, satori and timer; mark friend_recall as a direct channel like private messages",

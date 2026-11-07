@@ -1,0 +1,81 @@
+diff --git a/lib/index.cjs b/lib/index.cjs
+index c3cecb6..6eddf09 100644
+--- a/lib/index.cjs
++++ b/lib/index.cjs
+@@ -1259,22 +1259,30 @@ async function decodeMessage(bot, data, message, payload = message, details = tr
+   message.id = message.messageId = data.id;
+   message.content = "";
+   if (data.content) {
+-    message.content = data.content.replace(/<@[!&]?(.+?)>/g, (_, id) => {
+-      if (data.mention_roles.includes(id)) {
+-        return (0, import_core2.h)("at", { role: id }).toString();
++    let last = 0;
++    for (const match of data.content.matchAll(/<@([!&]?)(\d+)>|<(a?):(\w+):(\d+)>|<#(\d+)>|@everyone|@here/g)) {
++      message.content += import_core2.h.escape(data.content.slice(last, match.index));
++      last = match.index + match[0].length;
++      const [token, kind, userId, animated, name, emojiId, channelId] = match;
++      if (userId) {
++        if (kind === "&" || data.mention_roles.includes(userId)) {
++          message.content += (0, import_core2.h)("at", { role: userId });
++        } else {
++          const user = data.mentions?.find((u) => u.id === userId);
++          message.content += import_core2.h.at(userId, { name: user?.username });
++        }
++      } else if (emojiId) {
++        message.content += (0, import_core2.h)("face", { id: emojiId, name, animated: !!animated, platform }, [
++          import_core2.h.image(`https://cdn.discordapp.com/emojis/${emojiId}.webp?quality=lossless`)
++        ]);
++      } else if (channelId) {
++        const channel = data.mention_channels?.find((c) => c.id === channelId);
++        message.content += import_core2.h.sharp(channelId, { name: channel?.name });
+       } else {
+-        const user = data.mentions?.find((u) => u.id === id || `${u.username}#${u.discriminator}` === id);
+-        return import_core2.h.at(id, { name: user?.username }).toString();
++        message.content += (0, import_core2.h)("at", { type: token === "@everyone" ? "all" : "here" });
+       }
+-    }).replace(/<a?:(.*):(.+?)>/g, (_, name, id) => {
+-      const animated = _[1] === "a";
+-      return (0, import_core2.h)("face", { id, name, animated, platform }, [
+-        import_core2.h.image(`https://cdn.discordapp.com/emojis/${id}.webp?quality=lossless`)
+-      ]).toString();
+-    }).replace(/@everyone/g, () => (0, import_core2.h)("at", { type: "all" }).toString()).replace(/@here/g, () => (0, import_core2.h)("at", { type: "here" }).toString()).replace(/<#(.+?)>/g, (_, id) => {
+-      const channel = data.mention_channels?.find((c) => c.id === id);
+-      return import_core2.h.sharp(id, { name: channel?.name }).toString();
+-    });
++    }
++    message.content += import_core2.h.escape(data.content.slice(last));
+   }
+   if (data.sticker_items) {
+     message.content += data.sticker_items.map((s) => (0, import_core2.h)("sticker", {
+@@ -1327,6 +1335,16 @@ async function decodeMessage(bot, data, message, payload = message, details = tr
+     }).join("");
+   }
+   for (const embed of data.embeds) {
++    if (embed.title || embed.description || embed.fields?.length || embed.author?.name || embed.footer?.text) {
++      message.content += (0, import_core2.h)("discord:embed", {
++        type: embed.type,
++        title: embed.title,
++        url: embed.url,
++        description: embed.description,
++        author: embed.author?.name,
++        footer: embed.footer?.text
++      }, (embed.fields ?? []).map((field) => (0, import_core2.h)("field", { name: field.name, value: field.value, inline: field.inline })));
++    }
+     if (embed.image) {
+       message.content += (0, import_core2.h)("img", { src: embed.image.url, proxy_url: embed.image.proxy_url });
+     }
+@@ -1409,6 +1427,14 @@ async function adaptSession(bot, input) {
+     session.messageId = input.d.id;
+     session.channelId = input.d.channel_id;
+     setupMessageGuildId(session, input.d.guild_id);
++    if (!input.d.guild_id) {
++      try {
++        const channel = await bot.internal.getChannel(input.d.channel_id);
++        session.userId = channel.recipients?.[0]?.id;
++      } catch (e) {
++        bot.logger.warn("cannot resolve the author of a direct message deletion", e);
++      }
++    }
+   } else if (input.t === "MESSAGE_REACTION_ADD") {
+     session.type = "reaction-added";
+     setupReaction(session, input.d);

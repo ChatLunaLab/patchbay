@@ -1,5 +1,5 @@
 diff --git a/lib/index.cjs b/lib/index.cjs
-index 4e1bd28..a19e6b9 100644
+index 4e1bd28..d722f5b 100644
 --- a/lib/index.cjs
 +++ b/lib/index.cjs
 @@ -293,6 +293,7 @@ var decodeGuildMember = /* @__PURE__ */ __name((member) => ({
@@ -96,8 +96,12 @@ index 4e1bd28..a19e6b9 100644
    payload.user = { id: data.author.id, avatar: `https://q.qlogo.cn/qqapp/${bot.config.id}/${data.author.id}/640` };
    if (data.author.username) payload.user.name = data.author.username;
    if (data.author.member_role) payload.member = { roles: [{ id: data.author.member_role }] };
-@@ -407,7 +427,7 @@ async function decodeMessage(bot, data, message = {}, payload = message) {
-   message.content = (data.content ?? "").replace(/<@!(\d+)>/g, (_, $1) => import_core.h.at($1).toString());
+@@ -404,10 +424,10 @@ function decodeGroupMessage(bot, data, message = {}, payload = message) {
+ __name(decodeGroupMessage, "decodeGroupMessage");
+ async function decodeMessage(bot, data, message = {}, payload = message) {
+   message.id = message.messageId = data.id;
+-  message.content = (data.content ?? "").replace(/<@!(\d+)>/g, (_, $1) => import_core.h.at($1).toString());
++  message.content = (data.content ?? "").split(/<@!(\d+)>/).map((part, index) => index % 2 ? import_core.h.at(part).toString() : import_core.h.escape(part)).join("");
    const { attachments = [] } = data;
    if (attachments.length && !/\s$/.test(message.content)) message.content += " ";
 -  message.content = attachments.filter(({ content_type }) => content_type.startsWith("image")).reduce((content, attachment) => content + import_core.h.image("https://" + attachment.url), message.content);

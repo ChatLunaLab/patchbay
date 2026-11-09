@@ -1,5 +1,5 @@
 diff --git a/lib/index.cjs b/lib/index.cjs
-index 01364de..822374f 100644
+index 01364de..27e76a5 100644
 --- a/lib/index.cjs
 +++ b/lib/index.cjs
 @@ -244,10 +244,11 @@ async function handleUpdate(update, bot) {
@@ -66,7 +66,16 @@ index 01364de..822374f 100644
    } else if (data.photo) {
      const photo = data.photo.sort((s1, s2) => s2.file_size - s1.file_size)[0];
      segments.push((0, import_core.h)("img", await bot.$getFileFromId(photo.file_id)));
-@@ -442,7 +451,7 @@ async function decodeMessage(bot, data, message, payload = message) {
+@@ -419,6 +428,8 @@ async function decodeMessage(bot, data, message, payload = message) {
+     await addResource("img", data.animation);
+   } else if (data.video) {
+     await addResource("video", data.video);
++  } else if (data.video_note) {
++    await addResource("video", data.video_note);
+   } else if (data.document) {
+     await addResource("file", data.document);
+   } else if (data.audio) {
+@@ -442,7 +453,7 @@ async function decodeMessage(bot, data, message, payload = message) {
      };
      payload.member = {};
      payload.channel = {
@@ -75,7 +84,7 @@ index 01364de..822374f 100644
        type: import_core.Universal.Channel.Type.TEXT
      };
    }
-@@ -461,9 +470,12 @@ var TelegramMessageEncoder = class extends import_core2.MessageEncoder {
+@@ -461,9 +472,12 @@ var TelegramMessageEncoder = class extends import_core2.MessageEncoder {
    mode = "default";
    rows = [];
    async prepare() {
@@ -90,7 +99,7 @@ index 01364de..822374f 100644
        this.payload.message_thread_id = +this.channelId;
      }
    }
-@@ -564,8 +576,8 @@ var TelegramMessageEncoder = class extends import_core2.MessageEncoder {
+@@ -564,8 +578,8 @@ var TelegramMessageEncoder = class extends import_core2.MessageEncoder {
            formData.append("chat_id", this.payload.chat_id);
            formData.append("caption", this.payload.caption);
            formData.append("parse_mode", this.payload.parse_mode);
@@ -101,7 +110,7 @@ index 01364de..822374f 100644
            formData.append("has_spoiler", files[0].element.attrs.spoiler ? "true" : "false");
            formData.append(dataKey, "attach://" + files[0].filename);
            formData.append(files[0].filename, new Blob([files[0].data], { type: files[0].mime }), files[0].filename);
-@@ -874,10 +886,12 @@ var TelegramBot = class _TelegramBot extends import_core5.Bot {
+@@ -874,10 +888,12 @@ var TelegramBot = class _TelegramBot extends import_core5.Bot {
      this.online();
    }
    async deleteMessage(chat_id, message_id) {

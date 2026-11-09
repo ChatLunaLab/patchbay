@@ -74,26 +74,28 @@
     {
       "name": "@satorijs/adapter-qq",
       "version": "4.14.1",
-      "description": "Decode official QQ group_openid targets, ARK cards, nested chat records and index-only quotes; keep absolute channel image URLs",
+      "description": "Decode official QQ group_openid targets, ARK cards, nested chat records and index-only quotes; keep absolute channel image URLs and literal markup in guild text",
       "fixes": [
         "ChatLunaLab/v2-mirror#84",
         "ChatLunaLab/v2-mirror#93",
         "ChatLunaLab/v2-mirror#134",
         "ChatLunaLab/v2-mirror#135",
         "ChatLunaLab/v2-mirror#136",
-        "ChatLunaLab/v2-mirror#139"
+        "ChatLunaLab/v2-mirror#139",
+        "ChatLunaLab/v2-mirror#225"
       ]
     },
     {
       "name": "@satorijs/adapter-telegram",
       "version": "4.5.11",
-      "description": "Mention the bot by username, decode contacts, polls, dice and venues, scope albums and forum topics to their chat, and omit missing ids from uploads",
+      "description": "Mention the bot by username, decode contacts, polls, dice, venues and video notes, scope albums and forum topics to their chat, and omit missing ids from uploads",
       "fixes": [
         "ChatLunaLab/v2-mirror#146",
         "ChatLunaLab/v2-mirror#148",
         "ChatLunaLab/v2-mirror#149",
         "ChatLunaLab/v2-mirror#151",
-        "ChatLunaLab/v2-mirror#164"
+        "ChatLunaLab/v2-mirror#164",
+        "ChatLunaLab/v2-mirror#226"
       ]
     },
     {

@@ -1,6 +1,6 @@
 {
   "name": "@chatluna/patchbay",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Cordis 4 patches for Koishi, Satori, Satori adapters and Cordis plugins, wired into yarn, pnpm or npm",
   "type": "module",
   "license": "MIT",

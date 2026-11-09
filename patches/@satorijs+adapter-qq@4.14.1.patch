@@ -1,5 +1,5 @@
 diff --git a/lib/index.cjs b/lib/index.cjs
-index 4e1bd28..d722f5b 100644
+index 4e1bd28..ce022b9 100644
 --- a/lib/index.cjs
 +++ b/lib/index.cjs
 @@ -293,6 +293,7 @@ var decodeGuildMember = /* @__PURE__ */ __name((member) => ({
@@ -109,3 +109,14 @@ index 4e1bd28..d722f5b 100644
    message.elements = import_core.h.parse(message.content);
    message.elements = import_core.h.transform(message.elements, {
      text: /* @__PURE__ */ __name((attrs) => import_core.h.unescape(attrs.content), "text")
+@@ -2273,6 +2293,10 @@ var QQBot = class extends import_core7.Bot {
+       await this.internal.deletePrivateMessage(channelId, messageId);
+     }
+   }
++  // Group and C2C openids carry no profile endpoint; the avatar is derived from appid + openid.
++  async getUser(userId) {
++    return { id: userId, avatar: `https://q.qlogo.cn/qqapp/${this.config.id}/${userId}/640` };
++  }
+   async getGuild(guildId) {
+     const data = await this.internal.getGuildInfo(guildId);
+     return { id: data.group_openid, name: data.group_name };

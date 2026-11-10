@@ -1,5 +1,5 @@
 diff --git a/lib/index.cjs b/lib/index.cjs
-index a11da83..c0f81ec 100644
+index a11da83..4bdc0d6 100644
 --- a/lib/index.cjs
 +++ b/lib/index.cjs
 @@ -581,8 +581,21 @@ var KoishiDatabase = class {
@@ -26,8 +26,37 @@ index a11da83..c0f81ec 100644
    }
    async getChannel(platform, id, modifier) {
      const data = await this.get("channel", { platform, id }, modifier);
+@@ -788,6 +801,7 @@ var Processor = class {
+   }
+   async attach(session, next) {
+     this.ctx.emit(session, "before-attach", session);
++    let unassigned = false;
+     if (this.ctx.database) {
+       if (!session.isDirect) {
+         const channelFields = /* @__PURE__ */ new Set(["flag", "assignee", "guildId", "permissions", "locales"]);
+@@ -796,7 +810,8 @@ var Processor = class {
+         channel.guildId = session.guildId;
+         if (await this.ctx.serial(session, "attach-channel", session)) return;
+         if (channel.flag & Channel.Flag.ignore) return;
+-        if (channel.assignee !== session.selfId && !session.stripped.atSelf) return;
++        // patchbay: another bot owns this channel; load the user, then hand the session to attach-unassigned instead of the middleware chain.
++        unassigned = channel.assignee !== session.selfId && !session.stripped.atSelf;
+       }
+       const userFields = /* @__PURE__ */ new Set(["id", "flag", "authority", "permissions", "locales"]);
+       this.ctx.emit("before-attach-user", session, userFields);
+@@ -804,6 +819,10 @@ var Processor = class {
+       if (await this.ctx.serial(session, "attach-user", session)) return;
+       if (user.flag & User.Flag.ignore) return;
+     }
++    if (unassigned) {
++      await this.ctx.serial(session, "attach-unassigned", session);
++      return;
++    }
+     this.ctx.emit(session, "attach", session);
+     if (session.response) return session.response();
+     return next();
 diff --git a/lib/index.d.ts b/lib/index.d.ts
-index b0e0826..004cff1 100644
+index b0e0826..310eb7e 100644
 --- a/lib/index.d.ts
 +++ b/lib/index.d.ts
 @@ -1,17 +1,15 @@
@@ -60,7 +89,7 @@ index b0e0826..004cff1 100644
  }
  declare class KoishiDatabase {
      ctx: Context;
-@@ -103,13 +101,13 @@ export interface Context {
+@@ -103,13 +101,14 @@ export interface Context {
      }): () => boolean;
  }
  export interface Events {
@@ -75,13 +104,14 @@ index b0e0826..004cff1 100644
 +    'attach-channel'(session: satori.Session): Awaitable<void | boolean>;
 +    'before-attach-user'(session: satori.Session, fields: Set<User.Field>): void;
 +    'attach-user'(session: satori.Session): Awaitable<void | boolean>;
++    'attach-unassigned'(session: satori.Session): Awaitable<void | boolean>;
 +    'before-attach'(session: satori.Session): void;
 +    'attach'(session: satori.Session): void;
 +    'middleware'(session: satori.Session): void;
  }
  export class SessionError extends Error {
      path: string | string[];
-@@ -219,7 +217,9 @@ export namespace I18n {
+@@ -219,7 +218,9 @@ export namespace I18n {
      const Config: Schema<Config>;
  }
  export interface Context {
@@ -92,7 +122,7 @@ index b0e0826..004cff1 100644
  }
  export interface Events {
      'internal/permission'(): void;
-@@ -470,6 +470,10 @@ export namespace Command {
+@@ -470,6 +471,10 @@ export namespace Command {
          handleError?: boolean | ((error: Error, argv: Argv) => Awaitable<void | Fragment>);
          /** enable slash command */
          slash?: boolean;
@@ -103,7 +133,7 @@ index b0e0826..004cff1 100644
      }
      const Config: Schema<Config>;
  }
-@@ -479,7 +483,7 @@ export interface Context {
+@@ -479,7 +484,7 @@ export interface Context {
      command<D extends string>(def: D, desc: string, config?: Command.Config): Command<never, never, Argv.ArgumentType<D>>;
  }
  export interface Events {
@@ -112,7 +142,7 @@ index b0e0826..004cff1 100644
      'command-added'(command: Command): void;
      'command-updated'(command: Command): void;
      'command-removed'(command: Command): void;
-@@ -680,6 +684,39 @@ declare module '@satorijs/core' {
+@@ -680,6 +685,39 @@ declare module '@satorijs/core' {
      interface Events {
          'internal/schema'(name: string): void;
      }
@@ -152,7 +182,7 @@ index b0e0826..004cff1 100644
  }
  export class SchemaService {
      ctx: Context;
-@@ -689,19 +726,83 @@ export class SchemaService {
+@@ -689,19 +727,84 @@ export class SchemaService {
      get(name: string): Schema;
      set(name: string, schema: Schema): void;
  }
@@ -223,6 +253,7 @@ index b0e0826..004cff1 100644
 +        'attach-channel'(session: satori.Session): Awaitable<void | boolean>;
 +        'before-attach-user'(session: satori.Session, fields: Set<User.Field>): void;
 +        'attach-user'(session: satori.Session): Awaitable<void | boolean>;
++        'attach-unassigned'(session: satori.Session): Awaitable<void | boolean>;
 +        'before-attach'(session: satori.Session): void;
 +        'attach'(session: satori.Session): void;
 +        'middleware'(session: satori.Session): void;
@@ -240,7 +271,7 @@ index b0e0826..004cff1 100644
  }
  export interface EnvData {
  }
-@@ -713,10 +814,18 @@ type BeforeEventMap = {
+@@ -713,10 +816,18 @@ type BeforeEventMap = {
  export interface Events<C extends Context = Context> extends cordis.Events<C> {
  }
  export interface Context {
@@ -261,7 +292,7 @@ index b0e0826..004cff1 100644
  export class Context extends satori.Context {
      static shadow: symbol;
      constructor(config?: Context.Config);
-@@ -724,12 +833,6 @@ export class Context extends satori.Context {
+@@ -724,12 +835,6 @@ export class Context extends satori.Context {
      get app(): this;
      /** @deprecated use `koishi.config` instead */
      get options(): any;
@@ -274,7 +305,7 @@ index b0e0826..004cff1 100644
      before<K extends BeforeEventName>(name: K, listener: BeforeEventMap[K], append?: boolean): () => boolean;
  }
  export namespace Context {
-@@ -764,8 +867,7 @@ export namespace Context {
+@@ -764,8 +869,7 @@ export namespace Context {
          }
      }
  }
@@ -284,7 +315,7 @@ index b0e0826..004cff1 100644
  }
  export { Context as App };
  export function defineConfig(config: Context.Config): Context.Config;
-@@ -784,5 +886,5 @@ declare class KoishiBot {
+@@ -784,5 +888,5 @@ declare class KoishiBot {
      broadcast(channels: (string | [string, string] | Session)[], content: Fragment, delay?: any): Promise<string[]>;
  }
  export * from '@koishijs/utils';
@@ -292,7 +323,7 @@ index b0e0826..004cff1 100644
 +export * from '@cordisjs/plugin-database';
  export { version };
 diff --git a/lib/index.mjs b/lib/index.mjs
-index b99cd02..095a3eb 100644
+index b99cd02..7aae3ca 100644
 --- a/lib/index.mjs
 +++ b/lib/index.mjs
 @@ -2,16 +2,124 @@ var __defProp = Object.defineProperty;
@@ -625,16 +656,38 @@ index b99cd02..095a3eb 100644
      let content = stripped.content;
      if (quote?.content) content += " " + quote.content;
      let params = null;
-@@ -724,7 +857,7 @@ var Processor = class {
+@@ -724,7 +857,8 @@ var Processor = class {
    }
    async attach(session, next) {
      this.ctx.emit(session, "before-attach", session);
 -    if (this.ctx.database) {
++    let unassigned = false;
 +    if (this.ctx.get("database", false)) {
        if (!session.isDirect) {
          const channelFields = /* @__PURE__ */ new Set(["flag", "assignee", "guildId", "permissions", "locales"]);
          this.ctx.emit("before-attach-channel", session, channelFields);
-@@ -747,7 +880,7 @@ var Processor = class {
+@@ -732,7 +866,8 @@ var Processor = class {
+         channel.guildId = session.guildId;
+         if (await this.ctx.serial(session, "attach-channel", session)) return;
+         if (channel.flag & Channel.Flag.ignore) return;
+-        if (channel.assignee !== session.selfId && !session.stripped.atSelf) return;
++        // patchbay: another bot owns this channel; load the user, then hand the session to attach-unassigned instead of the middleware chain.
++        unassigned = channel.assignee !== session.selfId && !session.stripped.atSelf;
+       }
+       const userFields = /* @__PURE__ */ new Set(["id", "flag", "authority", "permissions", "locales"]);
+       this.ctx.emit("before-attach-user", session, userFields);
+@@ -740,6 +875,10 @@ var Processor = class {
+       if (await this.ctx.serial(session, "attach-user", session)) return;
+       if (user.flag & User.Flag.ignore) return;
+     }
++    if (unassigned) {
++      await this.ctx.serial(session, "attach-unassigned", session);
++      return;
++    }
+     this.ctx.emit(session, "attach", session);
+     if (session.response) return session.response();
+     return next();
+@@ -747,7 +886,7 @@ var Processor = class {
    async _handleMessage(session) {
      if (session.selfId === session.userId) return;
      this._sessions[session.id] = session;
@@ -643,7 +696,7 @@ index b99cd02..095a3eb 100644
      let index = 0;
      const next = /* @__PURE__ */ __name(async (callback) => {
        try {
-@@ -778,7 +911,14 @@ ${stack}`);
+@@ -778,7 +917,14 @@ ${stack}`);
        await session.user?.$update();
        await session.channel?.$update();
        await session.guild?.$update();
@@ -659,7 +712,7 @@ index b99cd02..095a3eb 100644
      }
    }
  };
-@@ -843,7 +983,7 @@ var Command = class _Command extends Argv.CommandBase {
+@@ -843,7 +989,7 @@ var Command = class _Command extends Argv.CommandBase {
      ctx.$commander._commandList.push(this);
    }
    get caller() {
@@ -668,7 +721,7 @@ index b99cd02..095a3eb 100644
    }
    get displayName() {
      return Object.keys(this._aliases)[0];
-@@ -971,7 +1111,7 @@ var Command = class _Command extends Argv.CommandBase {
+@@ -971,7 +1117,7 @@ var Command = class _Command extends Argv.CommandBase {
      return this;
    }
    match(session) {
@@ -677,7 +730,7 @@ index b99cd02..095a3eb 100644
    }
    check(callback, append = false) {
      return this.before(callback, append);
-@@ -982,7 +1122,7 @@ var Command = class _Command extends Argv.CommandBase {
+@@ -982,7 +1128,7 @@ var Command = class _Command extends Argv.CommandBase {
      } else {
        this._checkers.unshift(callback);
      }
@@ -686,7 +739,7 @@ index b99cd02..095a3eb 100644
      return this;
    }
    action(callback, prepend = false) {
-@@ -991,7 +1131,7 @@ var Command = class _Command extends Argv.CommandBase {
+@@ -991,7 +1137,7 @@ var Command = class _Command extends Argv.CommandBase {
      } else {
        this._actions.push(callback);
      }
@@ -695,7 +748,7 @@ index b99cd02..095a3eb 100644
      return this;
    }
    /** @deprecated */
-@@ -1095,6 +1235,43 @@ __name(toStringType, "toStringType");
+@@ -1095,6 +1241,43 @@ __name(toStringType, "toStringType");
  // src/command/validate.ts
  import { isNullable as isNullable2 } from "cosmokit";
  function validate(ctx) {
@@ -739,7 +792,7 @@ index b99cd02..095a3eb 100644
    ctx.permissions.define("command:(name)", {
      depends: /* @__PURE__ */ __name(({ name }) => {
        const command = ctx.$commander.get(name);
-@@ -1130,50 +1307,19 @@ function validate(ctx) {
+@@ -1130,50 +1313,19 @@ function validate(ctx) {
        return command.config.showWarning ? session.text(message, param) : "";
      }
      __name(sendHint, "sendHint");
@@ -748,8 +801,9 @@ index b99cd02..095a3eb 100644
      for (const option of Object.values(command._options)) {
        if (option.name in options) {
 -        permissions.push(`command:${command.name}:option:${option.name}`);
--      }
--    }
++        required.push(`command:${command.name}:option:${option.name}`);
+       }
+     }
 -    if (!await ctx.permissions.test(permissions, session)) {
 -      return sendHint("internal.low-authority");
 -    }
@@ -777,9 +831,8 @@ index b99cd02..095a3eb 100644
 -      const finalArg = command._arguments[command._arguments.length - 1] || {};
 -      if (args.length > command._arguments.length && !finalArg.variadic) {
 -        return sendHint("internal.redunant-arguments");
-+        required.push(`command:${command.name}:option:${option.name}`);
-       }
-     }
+-      }
+-    }
 -    if (command.config.checkUnknown) {
 -      const unknown = Object.keys(options).filter((key) => !command._options[key]);
 -      if (unknown.length) {
@@ -796,7 +849,7 @@ index b99cd02..095a3eb 100644
  
  // src/command/index.ts
  var isArray = Array.isArray;
-@@ -1182,7 +1328,7 @@ var Commander = class {
+@@ -1182,7 +1334,7 @@ var Commander = class {
    constructor(ctx, config = {}) {
      this.ctx = ctx;
      this.config = config;
@@ -805,7 +858,7 @@ index b99cd02..095a3eb 100644
      ctx.plugin(validate);
      ctx.before("parse", (content, session) => {
        const { isDirect, stripped: { prefix, appel } } = session;
-@@ -1255,7 +1401,7 @@ var Commander = class {
+@@ -1255,7 +1407,7 @@ var Commander = class {
        permissions: Schema2.array(String).role("perms").default(["authority:0"]).description("权限继承。"),
        dependencies: Schema2.array(String).role("perms").description("权限依赖。")
      }), 1e3);
@@ -814,7 +867,7 @@ index b99cd02..095a3eb 100644
        const bots = ctx.bots.filter((v) => v.status === Universal3.Status.ONLINE && v.updateCommands);
        bots.forEach((bot) => this.updateCommands(bot));
      });
-@@ -1334,6 +1480,8 @@ var Commander = class {
+@@ -1334,6 +1486,8 @@ var Commander = class {
    static {
      __name(this, "Commander");
    }
@@ -823,7 +876,7 @@ index b99cd02..095a3eb 100644
    _commandList = [];
    defineElementDomain(name, key = name, type = name) {
      this.domain(name, (source, session) => {
-@@ -1456,13 +1604,14 @@ var Commander = class {
+@@ -1456,13 +1610,14 @@ var Commander = class {
      });
      Object.assign(parent.config, config);
      created.forEach((command) => this.ctx.emit("command-added", command));
@@ -841,7 +894,7 @@ index b99cd02..095a3eb 100644
      return this.ctx.set(service, { transform, ...options });
    }
    resolveDomain(type) {
-@@ -1533,10 +1682,10 @@ import { fallback, LocaleTree } from "@koishijs/i18n-utils";
+@@ -1533,10 +1688,10 @@ import { fallback, LocaleTree } from "@koishijs/i18n-utils";
  import { h as h4, Logger as Logger2, Schema as Schema3 } from "@satorijs/core";
  
  // src/locales/zh-CN.yml
@@ -854,7 +907,7 @@ index b99cd02..095a3eb 100644
  
  // src/i18n.ts
  var logger2 = new Logger2("i18n");
-@@ -1570,6 +1719,8 @@ var I18n = class {
+@@ -1570,6 +1725,8 @@ var I18n = class {
    static {
      __name(this, "I18n");
    }
@@ -863,7 +916,7 @@ index b99cd02..095a3eb 100644
    _data = {};
    _presets = {};
    locales;
-@@ -1613,7 +1764,7 @@ var I18n = class {
+@@ -1613,7 +1770,7 @@ var I18n = class {
      const dict = this._data[locale] ||= {};
      const paths = [...typeof args[0] === "string" ? this.set(locale, args[0] + ".", args[1]) : this.set(locale, "", args[0])];
      this.ctx.emit("internal/i18n");
@@ -872,7 +925,7 @@ index b99cd02..095a3eb 100644
        for (const path2 of paths) {
          delete dict[path2];
        }
-@@ -1680,7 +1831,7 @@ var I18n = class {
+@@ -1680,7 +1837,7 @@ var I18n = class {
  import { observe } from "@koishijs/utils";
  import { isNullable as isNullable4, makeArray as makeArray2 } from "cosmokit";
  import { h as h5, Logger as Logger3 } from "@satorijs/core";
@@ -881,7 +934,7 @@ index b99cd02..095a3eb 100644
  var logger3 = new Logger3("session");
  function collectFields(argv, collectors, fields) {
    for (const collector of collectors) {
-@@ -1700,7 +1851,8 @@ var KoishiSession = class {
+@@ -1700,7 +1857,8 @@ var KoishiSession = class {
      __name(this, "KoishiSession");
    }
    constructor(ctx) {
@@ -891,7 +944,7 @@ index b99cd02..095a3eb 100644
        resolve: "session.resolve",
        stripped: "session.stripped",
        username: "session.username",
-@@ -1969,7 +2121,7 @@ var KoishiSession = class {
+@@ -1969,7 +2127,7 @@ var KoishiSession = class {
        }
      }
      const { command } = argv;
@@ -900,7 +953,7 @@ index b99cd02..095a3eb 100644
      if (this.app.database) {
        if (!this.isDirect) {
          await this.observeChannel(this.collect("channel", argv, /* @__PURE__ */ new Set(["permissions", "locales"])));
-@@ -2058,8 +2210,7 @@ var logger4 = new Logger4("app");
+@@ -2058,8 +2216,7 @@ var logger4 = new Logger4("app");
  var Permissions = class {
    constructor(ctx) {
      this.ctx = ctx;
@@ -910,7 +963,7 @@ index b99cd02..095a3eb 100644
      this.define("authority:(value)", {
        check: /* @__PURE__ */ __name(({ value }, { user }) => {
          return !user || user.authority >= +value;
-@@ -2076,6 +2227,8 @@ var Permissions = class {
+@@ -2076,6 +2233,8 @@ var Permissions = class {
    static {
      __name(this, "Permissions");
    }
@@ -919,7 +972,7 @@ index b99cd02..095a3eb 100644
    store = [];
    define(pattern, options) {
      const entry = {
-@@ -2167,7 +2320,8 @@ var KoishiBot = class {
+@@ -2167,7 +2326,8 @@ var KoishiBot = class {
      __name(this, "KoishiBot");
    }
    constructor(ctx) {
@@ -929,7 +982,7 @@ index b99cd02..095a3eb 100644
        getGuildMemberMap: "bot.getGuildMemberMap",
        broadcast: "bot.broadcast"
      });
-@@ -2238,9 +2392,11 @@ var SchemaService = class {
+@@ -2238,9 +2398,11 @@ var SchemaService = class {
    static {
      __name(this, "SchemaService");
    }
@@ -942,7 +995,7 @@ index b99cd02..095a3eb 100644
      const target = this.get(name);
      const index = target.list.findIndex((a) => a[kSchemaOrder] < order);
      schema[kSchemaOrder] = order;
-@@ -2250,7 +2406,7 @@ var SchemaService = class {
+@@ -2250,7 +2412,7 @@ var SchemaService = class {
        target.list.push(schema);
      }
      this.ctx.emit("internal/schema", name);
@@ -951,7 +1004,7 @@ index b99cd02..095a3eb 100644
        remove3(target.list, schema);
        this.ctx.emit("internal/schema", name);
      });
-@@ -2259,10 +2415,10 @@ var SchemaService = class {
+@@ -2259,10 +2421,10 @@ var SchemaService = class {
      return this._data[name] ||= Schema4.intersect([]);
    }
    set(name, schema) {
@@ -964,7 +1017,7 @@ index b99cd02..095a3eb 100644
        delete this._data[name];
        this.ctx.emit("internal/schema", name);
      });
-@@ -2272,6 +2428,95 @@ var SchemaService = class {
+@@ -2272,6 +2434,95 @@ var SchemaService = class {
  // src/context.ts
  import { Adapter as Adapter2, Bot as Bot3, Element, h as h6, HTTP as HTTP2, Logger as Logger5, MessageEncoder, Messenger, Quester, Schema as Schema6, segment, Universal as Universal5, z } from "@satorijs/core";
  import { resolveConfig } from "cordis";
@@ -1060,7 +1113,7 @@ index b99cd02..095a3eb 100644
  var Context = class extends satori.Context {
    static {
      __name(this, "Context");
-@@ -2279,31 +2524,8 @@ var Context = class extends satori.Context {
+@@ -2279,31 +2530,8 @@ var Context = class extends satori.Context {
    static shadow = /* @__PURE__ */ Symbol.for("session.shadow");
    constructor(config = {}) {
      super(config);
@@ -1094,7 +1147,7 @@ index b99cd02..095a3eb 100644
    }
    /** @deprecated use `ctx.root` instead */
    get app() {
-@@ -2313,25 +2535,6 @@ var Context = class extends satori.Context {
+@@ -2313,25 +2541,6 @@ var Context = class extends satori.Context {
    get options() {
      return this.root.config;
    }
@@ -1120,7 +1173,7 @@ index b99cd02..095a3eb 100644
    before(name, listener, append = false) {
      const seg = name.split("/");
      seg[seg.length - 1] = "before-" + seg[seg.length - 1];
-@@ -2339,19 +2542,36 @@ var Context = class extends satori.Context {
+@@ -2339,19 +2548,36 @@ var Context = class extends satori.Context {
    }
  };
  var Koishi = class extends cordis.Service {
@@ -1164,7 +1217,7 @@ index b99cd02..095a3eb 100644
  };
  ((Context3) => {
    Context3.Config = Schema5.intersect([
-@@ -2399,12 +2619,15 @@ var Service3 = class extends satori.Service {
+@@ -2399,12 +2625,15 @@ var Service3 = class extends satori.Service {
      this.ctx = new Context();
    }
  };
@@ -1180,7 +1233,7 @@ index b99cd02..095a3eb 100644
    Context as App,
    Argv,
    Bot3 as Bot,
-@@ -2426,6 +2649,7 @@ export {
+@@ -2426,6 +2655,7 @@ export {
    Schema6 as Schema,
    SchemaService,
    Service3 as Service,

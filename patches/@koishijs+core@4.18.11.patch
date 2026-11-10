@@ -56,7 +56,7 @@ index a11da83..4bdc0d6 100644
      if (session.response) return session.response();
      return next();
 diff --git a/lib/index.d.ts b/lib/index.d.ts
-index b0e0826..310eb7e 100644
+index b0e0826..2128562 100644
 --- a/lib/index.d.ts
 +++ b/lib/index.d.ts
 @@ -1,17 +1,15 @@
@@ -182,7 +182,7 @@ index b0e0826..310eb7e 100644
  }
  export class SchemaService {
      ctx: Context;
-@@ -689,19 +727,84 @@ export class SchemaService {
+@@ -689,19 +727,85 @@ export class SchemaService {
      get(name: string): Schema;
      set(name: string, schema: Schema): void;
  }
@@ -243,6 +243,7 @@ index b0e0826..310eb7e 100644
 +        http: Quester;
 +        server: any;
 +        before<K extends BeforeEventName>(name: K, listener: BeforeEventMap[K], append?: boolean): () => boolean;
++        chain<K extends keyof GetEvents<this>>(name: K, ...args: Parameters<GetEvents<this>[K]>): ReturnType<GetEvents<this>[K]>;
 +        /** @deprecated use `ctx.root` instead */
 +        readonly app: this;
 +        /** @deprecated use `koishi.config` instead */
@@ -271,7 +272,7 @@ index b0e0826..310eb7e 100644
  }
  export interface EnvData {
  }
-@@ -713,10 +816,18 @@ type BeforeEventMap = {
+@@ -713,10 +817,18 @@ type BeforeEventMap = {
  export interface Events<C extends Context = Context> extends cordis.Events<C> {
  }
  export interface Context {
@@ -292,7 +293,7 @@ index b0e0826..310eb7e 100644
  export class Context extends satori.Context {
      static shadow: symbol;
      constructor(config?: Context.Config);
-@@ -724,12 +835,6 @@ export class Context extends satori.Context {
+@@ -724,12 +836,6 @@ export class Context extends satori.Context {
      get app(): this;
      /** @deprecated use `koishi.config` instead */
      get options(): any;
@@ -305,7 +306,7 @@ index b0e0826..310eb7e 100644
      before<K extends BeforeEventName>(name: K, listener: BeforeEventMap[K], append?: boolean): () => boolean;
  }
  export namespace Context {
-@@ -764,8 +869,7 @@ export namespace Context {
+@@ -764,8 +870,7 @@ export namespace Context {
          }
      }
  }
@@ -315,7 +316,7 @@ index b0e0826..310eb7e 100644
  }
  export { Context as App };
  export function defineConfig(config: Context.Config): Context.Config;
-@@ -784,5 +888,5 @@ declare class KoishiBot {
+@@ -784,5 +889,5 @@ declare class KoishiBot {
      broadcast(channels: (string | [string, string] | Session)[], content: Fragment, delay?: any): Promise<string[]>;
  }
  export * from '@koishijs/utils';
@@ -323,7 +324,7 @@ index b0e0826..310eb7e 100644
 +export * from '@cordisjs/plugin-database';
  export { version };
 diff --git a/lib/index.mjs b/lib/index.mjs
-index b99cd02..7aae3ca 100644
+index b99cd02..63ca3a9 100644
 --- a/lib/index.mjs
 +++ b/lib/index.mjs
 @@ -2,16 +2,124 @@ var __defProp = Object.defineProperty;
@@ -1017,7 +1018,7 @@ index b99cd02..7aae3ca 100644
        delete this._data[name];
        this.ctx.emit("internal/schema", name);
      });
-@@ -2272,6 +2434,95 @@ var SchemaService = class {
+@@ -2272,6 +2434,106 @@ var SchemaService = class {
  // src/context.ts
  import { Adapter as Adapter2, Bot as Bot3, Element, h as h6, HTTP as HTTP2, Logger as Logger5, MessageEncoder, Messenger, Quester, Schema as Schema6, segment, Universal as Universal5, z } from "@satorijs/core";
  import { resolveConfig } from "cordis";
@@ -1033,6 +1034,17 @@ index b99cd02..7aae3ca 100644
 +        const seg = name.split("/");
 +        seg[seg.length - 1] = "before-" + seg[seg.length - 1];
 +        return self.on(seg.join("/"), listener, !append);
++      };
++    }
++  });
++  // patchbay: Koishi 4's synchronous `chain` (plugin-help pipes each option line through `help/option`); Cordis 4 has none.
++  ctx.accessor("chain", {
++    get() {
++      const self = this;
++      return (...args) => {
++        const [thisArg, callbacks] = self.events._resolve("chain", args);
++        for (const callback of callbacks) args[0] = Reflect.apply(callback, thisArg, args);
++        return args[0];
 +      };
 +    }
 +  });
@@ -1113,7 +1125,7 @@ index b99cd02..7aae3ca 100644
  var Context = class extends satori.Context {
    static {
      __name(this, "Context");
-@@ -2279,31 +2530,8 @@ var Context = class extends satori.Context {
+@@ -2279,31 +2541,8 @@ var Context = class extends satori.Context {
    static shadow = /* @__PURE__ */ Symbol.for("session.shadow");
    constructor(config = {}) {
      super(config);
@@ -1147,7 +1159,7 @@ index b99cd02..7aae3ca 100644
    }
    /** @deprecated use `ctx.root` instead */
    get app() {
-@@ -2313,25 +2541,6 @@ var Context = class extends satori.Context {
+@@ -2313,25 +2552,6 @@ var Context = class extends satori.Context {
    get options() {
      return this.root.config;
    }
@@ -1173,7 +1185,7 @@ index b99cd02..7aae3ca 100644
    before(name, listener, append = false) {
      const seg = name.split("/");
      seg[seg.length - 1] = "before-" + seg[seg.length - 1];
-@@ -2339,19 +2548,36 @@ var Context = class extends satori.Context {
+@@ -2339,19 +2559,36 @@ var Context = class extends satori.Context {
    }
  };
  var Koishi = class extends cordis.Service {
@@ -1217,7 +1229,7 @@ index b99cd02..7aae3ca 100644
  };
  ((Context3) => {
    Context3.Config = Schema5.intersect([
-@@ -2399,12 +2625,15 @@ var Service3 = class extends satori.Service {
+@@ -2399,12 +2636,15 @@ var Service3 = class extends satori.Service {
      this.ctx = new Context();
    }
  };
@@ -1233,7 +1245,7 @@ index b99cd02..7aae3ca 100644
    Context as App,
    Argv,
    Bot3 as Bot,
-@@ -2426,6 +2655,7 @@ export {
+@@ -2426,6 +2666,7 @@ export {
    Schema6 as Schema,
    SchemaService,
    Service3 as Service,

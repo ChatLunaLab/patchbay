@@ -103,9 +103,10 @@
     {
       "name": "koishi-plugin-adapter-onebot",
       "version": "6.9.5",
-      "description": "Import Satori directly and inject http, satori and timer; mark friend_recall as a direct channel like private messages",
+      "description": "Import Satori directly and inject http, satori and timer; mark friend_recall as a direct channel like private messages; carry a non-empty group_name as the guild and channel name on group messages",
       "fixes": [
-        "ChatLunaLab/v2-mirror#159"
+        "ChatLunaLab/v2-mirror#159",
+        "ChatLunaLab/v2-mirror#294"
       ]
     }
   ],

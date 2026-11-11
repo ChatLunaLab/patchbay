@@ -78,7 +78,7 @@ index 120885c..d5ba237 100644
          'onebot/message-reactions-updated'(session: Session): void;
          'onebot/channel-updated'(session: Session): void;
 diff --git a/lib/index.js b/lib/index.js
-index 996a9c8..cf1e9bd 100644
+index 996a9c8..4607a90 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -46,10 +46,10 @@ __export(index_exports, {
@@ -108,7 +108,19 @@ index 996a9c8..cf1e9bd 100644
  var SafetyLevel = /* @__PURE__ */ ((SafetyLevel2) => {
    SafetyLevel2[SafetyLevel2["safe"] = 0] = "safe";
    SafetyLevel2[SafetyLevel2["unknown"] = 1] = "unknown";
-@@ -466,6 +466,7 @@ async function adaptSession(bot, data) {
+@@ -355,8 +355,9 @@ async function adaptMessage(bot, data, message = {}, payload = message) {
+   payload.user = decodeUser(data.sender);
+   payload.member = decodeGuildMember(data.sender);
+   payload.timestamp = data.time * 1e3;
+-  payload.guild = guildId && { id: guildId };
+-  payload.channel = channelId && { id: channelId, type: guildId ? import_koishi2.Universal.Channel.Type.TEXT : import_koishi2.Universal.Channel.Type.DIRECT };
++  const groupName = data.group_name || void 0;
++  payload.guild = guildId && { id: guildId, ...groupName && { name: groupName } };
++  payload.channel = channelId && { id: channelId, type: guildId ? import_koishi2.Universal.Channel.Type.TEXT : import_koishi2.Universal.Channel.Type.DIRECT, ...guildId && groupName && { name: groupName } };
+   return message;
+ }
+ __name(adaptMessage, "adaptMessage");
+@@ -466,6 +467,7 @@ async function adaptSession(bot, data) {
          session.type = "message-deleted";
          session.subtype = "private";
          session.channelId = `private:${session.userId}`;
@@ -116,7 +128,7 @@ index 996a9c8..cf1e9bd 100644
          break;
        // from go-cqhttp source code, but not mentioned in official docs
        case "guild_channel_recall":
-@@ -594,7 +595,7 @@ var HttpServer = class extends import_koishi3.Adapter {
+@@ -594,7 +596,7 @@ var HttpServer = class extends import_koishi3.Adapter {
  })(HttpServer || (HttpServer = {}));
  
  // src/ws.ts
@@ -125,7 +137,7 @@ index 996a9c8..cf1e9bd 100644
  var WsClient = class extends import_koishi4.Adapter.WsClient {
    static {
      __name(this, "WsClient");
-@@ -734,10 +735,10 @@ function accept(socket, bot) {
+@@ -734,10 +736,10 @@ function accept(socket, bot) {
  __name(accept, "accept");
  
  // src/bot/base.ts
@@ -138,7 +150,7 @@ index 996a9c8..cf1e9bd 100644
  var import_node_url = require("node:url");
  var State = class {
    constructor(type) {
-@@ -830,7 +831,7 @@ var OneBotMessageEncoder = class extends import_koishi5.MessageEncoder {
+@@ -830,7 +832,7 @@ var OneBotMessageEncoder = class extends import_koishi5.MessageEncoder {
    }
    async sendFile(attrs) {
      const src = attrs.src || attrs.url;
@@ -147,7 +159,7 @@ index 996a9c8..cf1e9bd 100644
      const file = src.startsWith("file:") ? (0, import_node_url.fileURLToPath)(src) : await this.bot.internal.downloadFile(src);
      if (this.session.event.channel.type === import_koishi5.Universal.Channel.Type.DIRECT) {
        await this.bot.internal.uploadPrivateFile(
-@@ -977,7 +978,7 @@ var BaseBot2 = class extends import_koishi6.Bot {
+@@ -977,7 +979,7 @@ var BaseBot2 = class extends import_koishi6.Bot {
      __name(this, "BaseBot");
    }
    static MessageEncoder = OneBotMessageEncoder;
@@ -156,7 +168,7 @@ index 996a9c8..cf1e9bd 100644
    parent;
    internal;
    async createDirectChannel(userId) {
-@@ -1112,7 +1113,7 @@ var QQGuildBot = class extends BaseBot2 {
+@@ -1112,7 +1114,7 @@ var QQGuildBot = class extends BaseBot2 {
  };
  
  // src/bot/cqcode.ts
@@ -166,7 +178,7 @@ index 996a9c8..cf1e9bd 100644
    if (type === "text") return attrs.content;
    let output = "[CQ:" + type;
 diff --git a/lib/types.d.ts b/lib/types.d.ts
-index fc0546b..d0a5cc5 100644
+index fc0546b..1737c76 100644
 --- a/lib/types.d.ts
 +++ b/lib/types.d.ts
 @@ -1,4 +1,4 @@
@@ -175,6 +187,14 @@ index fc0546b..d0a5cc5 100644
  import { BaseBot, CQCode } from './bot';
  export interface Response {
      status: string;
+@@ -55,6 +55,7 @@ export interface Message extends MessageId {
+     message_type: 'private' | 'group' | 'guild';
+     sender: SenderInfo;
+     group_id?: number;
++    group_name?: string;
+     guild_id?: string;
+     channel_id?: string;
+     message: string | CQCode[];
 diff --git a/lib/utils.d.ts b/lib/utils.d.ts
 index 078165b..77b0d93 100644
 --- a/lib/utils.d.ts

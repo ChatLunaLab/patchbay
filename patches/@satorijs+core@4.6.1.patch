@@ -1,12 +1,37 @@
+diff --git a/lib/index.cjs b/lib/index.cjs
+index 9e64ff6..f013371 100644
+--- a/lib/index.cjs
++++ b/lib/index.cjs
+@@ -491,8 +491,8 @@ var Bot = class {
+     return messages.map((message) => message.id).filter(import_cosmokit3.isNonNullable);
+   }
+   async sendPrivateMessage(userId, content, guildId, options) {
+-    const { id } = await this.createDirectChannel(userId, guildId ?? options?.session?.guildId);
+-    return this.sendMessage(id, content, null, options);
++    const channel = await this.createDirectChannel(userId, guildId ?? options?.session?.guildId);
++    return this.sendMessage(channel.id, content, null, { ...options, channel: { type: 1, ...channel } });
+   }
+   async createUpload(...uploads) {
+     const ids = [];
+@@ -745,7 +745,7 @@ var MessageEncoder = class {
+   async send(content) {
+     this.session = this.bot.session({
+       type: "send",
+-      channel: { id: this.channelId, ...this.options.session?.event.channel },
++      channel: { id: this.channelId, ...this.options.session?.event.channel, ...this.options.channel },
+       guild: this.options.session?.event.guild
+     });
+     for (const key in this.options.session || {}) {
 diff --git a/lib/index.d.ts b/lib/index.d.ts
-index 642da25..b39b250 100644
+index 642da25..7e4ff28 100644
 --- a/lib/index.d.ts
 +++ b/lib/index.d.ts
 @@ -1,8 +1,9 @@
 -import { Context, Service, z, Logger } from 'cordis';
+-import { Message, SendOptions, Event, GuildMember, User, Meta, Response, Login, Methods, Status, Upload, WebSocket } from '@satorijs/protocol';
 +import { Context, Service, Logger } from 'cordis';
 +import { default as z } from 'schemastery';
- import { Message, SendOptions, Event, GuildMember, User, Meta, Response, Login, Methods, Status, Upload, WebSocket } from '@satorijs/protocol';
++import { Channel, Message, SendOptions, Event, GuildMember, User, Meta, Response, Login, Methods, Status, Upload, WebSocket } from '@satorijs/protocol';
  import h from '@satorijs/element';
  import { Awaitable, Dict } from 'cosmokit';
 -import { HTTP } from '@cordisjs/plugin-http';
@@ -14,7 +39,16 @@ index 642da25..b39b250 100644
  import { Key } from 'path-to-regexp';
  export abstract class MessageEncoder<C extends Context = Context, B extends Bot<C> = Bot<C>> {
      bot: B;
-@@ -49,7 +50,7 @@ export class Session<C extends Context = Context> {
+@@ -23,6 +24,8 @@ export { MessageEncoder as Modulator, MessageEncoder as Messenger };
+ declare module '@satorijs/protocol' {
+     interface SendOptions {
+         session?: Session;
++        /** The direct channel a proactive private send targets; keeps session.isDirect true in encoders. */
++        channel?: Channel;
+     }
+ }
+ export interface Session {
+@@ -49,7 +52,7 @@ export class Session<C extends Context = Context> {
      id: number;
      sn: number;
      bot: Bot<C>;
@@ -23,7 +57,7 @@ index 642da25..b39b250 100644
      event: Event;
      locales: string[];
      constructor(bot: Bot<C>, event: Partial<Event>);
-@@ -73,7 +74,7 @@ export class Session<C extends Context = Context> {
+@@ -73,7 +76,7 @@ export class Session<C extends Context = Context> {
  }
  export function defineAccessor(prototype: {}, name: string, keys: string[]): void;
  export type { Fragment, Render } from '@satorijs/element';
@@ -32,7 +66,7 @@ index 642da25..b39b250 100644
  export * from 'cordis';
  export * from 'cosmokit';
  export * as Universal from '@satorijs/protocol';
-@@ -129,7 +130,7 @@ declare module 'cordis' {
+@@ -129,7 +132,7 @@ declare module 'cordis' {
  }
  declare module '@cordisjs/plugin-http' {
      namespace HTTP {
@@ -41,7 +75,7 @@ index 642da25..b39b250 100644
      }
  }
  export type Component<S extends Session = Session> = h.Render<Awaitable<h.Fragment>, S>;
-@@ -138,7 +139,7 @@ export namespace Component {
+@@ -138,7 +141,7 @@ export namespace Component {
          session?: boolean;
      }
  }
@@ -50,7 +84,7 @@ index 642da25..b39b250 100644
  declare class SatoriContext extends Context {
      constructor(config?: any);
  }
-@@ -152,7 +153,7 @@ declare class DisposableSet<T> {
+@@ -152,7 +155,7 @@ declare class DisposableSet<T> {
      add(...values: T[]): () => void;
      [Symbol.iterator](): SetIterator<T>;
  }
@@ -59,7 +93,7 @@ index 642da25..b39b250 100644
      static [Service.provide]: string;
      static [Service.immediate]: boolean;
      uid: string;
-@@ -222,6 +223,7 @@ export abstract class Bot<C extends Context = Context, T = any> {
+@@ -222,6 +225,7 @@ export abstract class Bot<C extends Context = Context, T = any> {
      config: T;
      adapterName: string;
      static reusable: boolean;
@@ -68,7 +102,7 @@ index 642da25..b39b250 100644
      [Service.tracker]: {
          associate: string;
 diff --git a/lib/index.mjs b/lib/index.mjs
-index 79916ba..93a2e63 100644
+index 79916ba..a4a03ee 100644
 --- a/lib/index.mjs
 +++ b/lib/index.mjs
 @@ -2,7 +2,276 @@ var __defProp = Object.defineProperty;
@@ -413,6 +447,17 @@ index 79916ba..93a2e63 100644
      let events = [session.type];
      for (const aliases of eventAliases) {
        if (aliases.includes(session.type)) {
+@@ -441,8 +713,8 @@ var Bot = class {
+     return messages.map((message) => message.id).filter(isNonNullable);
+   }
+   async sendPrivateMessage(userId, content, guildId, options) {
+-    const { id } = await this.createDirectChannel(userId, guildId ?? options?.session?.guildId);
+-    return this.sendMessage(id, content, null, options);
++    const channel = await this.createDirectChannel(userId, guildId ?? options?.session?.guildId);
++    return this.sendMessage(channel.id, content, null, { ...options, channel: { type: 1, ...channel } });
+   }
+   async createUpload(...uploads) {
+     const ids = [];
 @@ -468,7 +740,7 @@ var Bot = class {
          delete this.ctx.satori._tempStore[id];
        }
@@ -458,6 +503,15 @@ index 79916ba..93a2e63 100644
            this.accept(socket);
          });
        }, "connect");
+@@ -695,7 +973,7 @@ var MessageEncoder = class {
+   async send(content) {
+     this.session = this.bot.session({
+       type: "send",
+-      channel: { id: this.channelId, ...this.options.session?.event.channel },
++      channel: { id: this.channelId, ...this.options.session?.event.channel, ...this.options.channel },
+       guild: this.options.session?.event.guild
+     });
+     for (const key in this.options.session || {}) {
 @@ -724,7 +1002,7 @@ var MessageEncoder = class {
  
  // src/index.ts

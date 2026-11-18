@@ -1,5 +1,22 @@
+diff --git a/lib/bot/index.d.ts b/lib/bot/index.d.ts
+index 61837ef..eea2da1 100644
+--- a/lib/bot/index.d.ts
++++ b/lib/bot/index.d.ts
+@@ -16,10 +16,12 @@ export declare class QQBot<C extends Context = Context, T extends QQBot.Config =
+     http: HTTP;
+     private _token;
+     private _timer;
++    private _refresh;
+     constructor(ctx: C, config: T);
+     initialize(): Promise<void>;
+     stop(): Promise<void>;
+     _ensureAccessToken(): Promise<void>;
++    refreshAccessToken(rejected?: string): Promise<string>;
+     getAccessToken(): Promise<string>;
+     getLogin(): Promise<Universal.Login>;
+     createDirectChannel(id: string): Promise<{
 diff --git a/lib/index.cjs b/lib/index.cjs
-index 4e1bd28..ce022b9 100644
+index 4e1bd28..4df6f64 100644
 --- a/lib/index.cjs
 +++ b/lib/index.cjs
 @@ -293,6 +293,7 @@ var decodeGuildMember = /* @__PURE__ */ __name((member) => ({
@@ -109,7 +126,90 @@ index 4e1bd28..ce022b9 100644
    message.elements = import_core.h.parse(message.content);
    message.elements = import_core.h.transform(message.elements, {
      text: /* @__PURE__ */ __name((attrs) => import_core.h.unescape(attrs.content), "text")
-@@ -2273,6 +2293,10 @@ var QQBot = class extends import_core7.Bot {
+@@ -607,17 +627,28 @@ var WsClient = class extends import_core2.Adapter.WsClient {
+   _ping;
+   _acked = true;
+   async prepare() {
+-    await this.bot.getAccessToken();
+-    try {
+-      const url = this.bot.config.gatewayUrl ? this.bot.config.gatewayUrl : (await this.bot.internal.getGateway()).url.replace("api.bot.qq.com", new URL(this.bot.config.endpoint).host);
+-      this.bot.logger.debug("url: %s", url);
+-      return this.bot.http.ws(url);
+-    } catch (error) {
+-      if (this.bot.http.isError(error) && error.response) {
+-        this.bot.logger.warn(`GET /gateway response: %o`, error.response.data);
++    let token = await this.bot.getAccessToken();
++    let url = this.bot.config.gatewayUrl;
++    if (!url) {
++      for (let attempt = 0; ; attempt++) {
++        try {
++          url = (await this.bot.internal.getGateway()).url.replace("api.bot.qq.com", new URL(this.bot.config.endpoint).host);
++          break;
++        } catch (error) {
++          if (!this.bot.http.isError(error) || !error.response) throw error;
++          const { status, data } = error.response;
++          if (attempt === 0 && (status === 401 || data?.code === 11244)) {
++            this.bot.logger.warn("access token rejected by /gateway, refreshing");
++            token = await this.bot.refreshAccessToken(token);
++            continue;
++          }
++          this.bot.logger.warn("GET /gateway response: %o", data);
++          throw error;
++        }
+       }
+-      throw error;
+     }
++    this.bot.logger.debug("url: %s", url);
++    return this.bot.http.ws(url);
+   }
+   heartbeat() {
+     if (!this._acked) {
+@@ -2195,6 +2226,7 @@ var QQBot = class extends import_core7.Bot {
+   http;
+   _token;
+   _timer;
++  _refresh;
+   constructor(ctx, config) {
+     super(ctx, config, "qq");
+     let endpoint = config.endpoint;
+@@ -2246,7 +2278,7 @@ var QQBot = class extends import_core7.Bot {
+       this._token = result.data.access_token;
+       this.http.config.headers.Authorization = `QQBot ${this._token}`;
+       this._timer = setTimeout(() => {
+-        this._ensureAccessToken();
++        void this.refreshAccessToken(this._token).catch(() => {});
+       }, (result.data.expires_in - 40) * 1e3);
+     } catch (e) {
+       if (!this.ctx.http.isError(e) || !e.response) throw e;
+@@ -2254,12 +2286,24 @@ var QQBot = class extends import_core7.Bot {
+       throw e;
+     }
+   }
+-  async getAccessToken() {
+-    if (!this._token) {
+-      await this._ensureAccessToken();
++  async refreshAccessToken(rejected) {
++    if (!this._refresh && (!this._token || this._token === rejected)) {
++      clearTimeout(this._timer);
++      this._token = void 0;
++      this.http.config.headers.Authorization = "";
++      this._refresh = this._ensureAccessToken().catch((error) => {
++        this.logger.warn("access token request failed: %s", error instanceof Error ? error.message : String(error));
++        throw error;
++      }).finally(() => {
++        this._refresh = void 0;
++      });
+     }
++    await this._refresh;
+     return this._token;
+   }
++  async getAccessToken() {
++    return this._token || this.refreshAccessToken();
++  }
+   async getLogin() {
+     return this.toJSON();
+   }
+@@ -2273,6 +2317,10 @@ var QQBot = class extends import_core7.Bot {
        await this.internal.deletePrivateMessage(channelId, messageId);
      }
    }
@@ -120,3 +220,98 @@ index 4e1bd28..ce022b9 100644
    async getGuild(guildId) {
      const data = await this.internal.getGuildInfo(guildId);
      return { id: data.group_openid, name: data.group_name };
+diff --git a/src/bot/index.ts b/src/bot/index.ts
+index 325a306..6031289 100644
+--- a/src/bot/index.ts
++++ b/src/bot/index.ts
+@@ -26,6 +26,7 @@ export class QQBot<C extends Context = Context, T extends QQBot.Config = QQBot.C
+ 
+   private _token: string
+   private _timer: NodeJS.Timeout
++  private _refresh: Promise<void> | undefined
+ 
+   constructor(ctx: C, config: T) {
+     super(ctx, config, 'qq')
+@@ -86,7 +87,7 @@ export class QQBot<C extends Context = Context, T extends QQBot.Config = QQBot.C
+       // 在上一个 access_token 接近过期的 60 秒内
+       // 重新请求可以获取到一个新的 access_token
+       this._timer = setTimeout(() => {
+-        this._ensureAccessToken()
++        void this.refreshAccessToken(this._token).catch(() => {})
+       }, (result.data.expires_in - 40) * 1000)
+     } catch (e) {
+       if (!this.ctx.http.isError(e) || !e.response) throw e
+@@ -95,13 +96,26 @@ export class QQBot<C extends Context = Context, T extends QQBot.Config = QQBot.C
+     }
+   }
+ 
+-  async getAccessToken() {
+-    if (!this._token) {
+-      await this._ensureAccessToken()
++  async refreshAccessToken(rejected?: string) {
++    if (!this._refresh && (!this._token || this._token === rejected)) {
++      clearTimeout(this._timer)
++      this._token = undefined
++      this.http.config.headers.Authorization = ''
++      this._refresh = this._ensureAccessToken().catch((error: unknown) => {
++        this.logger.warn('access token request failed: %s', error instanceof Error ? error.message : String(error))
++        throw error
++      }).finally(() => {
++        this._refresh = undefined
++      })
+     }
++    await this._refresh
+     return this._token
+   }
+ 
++  async getAccessToken() {
++    return this._token || this.refreshAccessToken()
++  }
++
+   async getLogin() {
+     return this.toJSON()
+   }
+diff --git a/src/ws.ts b/src/ws.ts
+index eda68b1..545ede7 100644
+--- a/src/ws.ts
++++ b/src/ws.ts
+@@ -10,19 +10,28 @@ export class WsClient<C extends Context = Context> extends Adapter.WsClient<C, Q
+   _acked = true
+ 
+   async prepare() {
+-    await this.bot.getAccessToken()
+-    try {
+-      const url = this.bot.config.gatewayUrl
+-        ? this.bot.config.gatewayUrl
+-        : (await this.bot.internal.getGateway()).url.replace('api.bot.qq.com', new URL(this.bot.config.endpoint).host)
+-      this.bot.logger.debug('url: %s', url)
+-      return this.bot.http.ws(url)
+-    } catch (error) {
+-      if (this.bot.http.isError(error) && error.response) {
+-        this.bot.logger.warn(`GET /gateway response: %o`, error.response.data)
++    let token = await this.bot.getAccessToken()
++    let url = this.bot.config.gatewayUrl
++    if (!url) {
++      for (let attempt = 0; ; attempt++) {
++        try {
++          url = (await this.bot.internal.getGateway()).url.replace('api.bot.qq.com', new URL(this.bot.config.endpoint).host)
++          break
++        } catch (error) {
++          if (!this.bot.http.isError(error) || !error.response) throw error
++          const { status, data } = error.response
++          if (attempt === 0 && (status === 401 || data?.code === 11244)) {
++            this.bot.logger.warn('access token rejected by /gateway, refreshing')
++            token = await this.bot.refreshAccessToken(token)
++            continue
++          }
++          this.bot.logger.warn('GET /gateway response: %o', data)
++          throw error
++        }
+       }
+-      throw error
+     }
++    this.bot.logger.debug('url: %s', url)
++    return this.bot.http.ws(url)
+   }
+ 
+   heartbeat() {

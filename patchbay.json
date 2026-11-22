@@ -76,7 +76,7 @@
     {
       "name": "@satorijs/adapter-qq",
       "version": "4.14.1",
-      "description": "Decode official QQ group_openid targets, ARK cards, nested chat records and index-only quotes; keep absolute channel image URLs and literal markup in guild text",
+      "description": "Decode official QQ group_openid targets, ARK cards, nested chat records and index-only quotes; keep absolute channel image URLs and literal markup in guild text; resolve the C2C upload recipient from the outbound channel so proactive private media uploads work",
       "fixes": [
         "ChatLunaLab/v2-mirror#84",
         "ChatLunaLab/v2-mirror#93",
@@ -84,7 +84,8 @@
         "ChatLunaLab/v2-mirror#135",
         "ChatLunaLab/v2-mirror#136",
         "ChatLunaLab/v2-mirror#139",
-        "ChatLunaLab/v2-mirror#225"
+        "ChatLunaLab/v2-mirror#225",
+        "ChatLunaLab/v2-mirror#523"
       ]
     },
     {

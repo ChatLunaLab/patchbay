@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { Context, Logger } from 'cordis'
 import { Http } from '@cordisjs/plugin-http'
-import { Satori } from '@satorijs/core'
+import { h, Satori } from '@satorijs/core'
 
 const tick = (ms = 30) => new Promise((r) => setTimeout(r, ms))
 const load = async (name) => {
@@ -20,7 +20,8 @@ const server = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' })
     if (req.url === '/v1/message.create') return res.end('[{"id":"m1"}]')
     if (req.url === '/users/@me') return res.end('{"id":"99","username":"qqbot","avatar":""}')
-    if (req.url.startsWith('/v2/groups/')) return res.end('{"id":"q1","timestamp":0}')
+    if (req.url === '/favicon.ico') return res.end('x')
+    if (req.url.startsWith('/v2/groups/') || req.url.startsWith('/v2/users/')) return res.end('{"id":"q1","timestamp":0}')
     res.end('{}')
   })
 })
@@ -94,6 +95,12 @@ assert.equal(qqbot.user.id, '99')
 assert.ok(requests.some((r) => r.url === '/users/@me' && r.auth === 'QQBot token-1'), 'REST calls carry the access token')
 await qqbot.sendMessage('group-1', 'hi')
 assert.ok(requests.some((r) => r.url === '/v2/groups/group-1/messages' && JSON.parse(r.body).content === 'hi'), 'qq message sent')
+
+// v2-mirror#523: a sessionless private send uploads media to the outbound channel's openid.
+requests.length = 0
+await qqbot.sendPrivateMessage('user-1', h.image(`${base}/favicon.ico`))
+assert.ok(requests.some((r) => r.method === 'POST' && r.url === '/v2/users/user-1/files'), 'qq private upload targets the outbound openid')
+assert.ok(requests.some((r) => r.method === 'POST' && r.url === '/v2/users/user-1/messages'), 'qq private message sent')
 
 assert.deepEqual(problems, [])
 console.log('adapters ok')

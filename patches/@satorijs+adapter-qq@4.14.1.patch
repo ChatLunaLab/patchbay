@@ -16,7 +16,7 @@ index 61837ef..eea2da1 100644
      getLogin(): Promise<Universal.Login>;
      createDirectChannel(id: string): Promise<{
 diff --git a/lib/index.cjs b/lib/index.cjs
-index 4e1bd28..4df6f64 100644
+index 4e1bd28..5cba44c 100644
 --- a/lib/index.cjs
 +++ b/lib/index.cjs
 @@ -293,6 +293,7 @@ var decodeGuildMember = /* @__PURE__ */ __name((member) => ({
@@ -164,6 +164,40 @@ index 4e1bd28..4df6f64 100644
    }
    heartbeat() {
      if (!this._acked) {
+@@ -1313,7 +1344,7 @@ var QQMessageEncoder = class extends import_core4.MessageEncoder {
+           data.file_data = fileDataBase64 ?? fileData.toString("base64");
+         }
+         if (this.session.isDirect) {
+-          res = await this.bot.internal.sendFilePrivate(this.options.session.userId, data);
++          res = await this.bot.internal.sendFilePrivate(this.session.channelId, data);
+         } else {
+           res = await this.bot.internal.sendFileGuild(this.session.channelId, data);
+         }
+@@ -1335,7 +1366,7 @@ var QQMessageEncoder = class extends import_core4.MessageEncoder {
+     const sha1 = import_crypto.default.createHash("sha1").update(fileData).digest("hex");
+     let uploadInfo;
+     if (this.session.isDirect) {
+-      uploadInfo = await this.bot.internal.uploadPreparePrivate(this.options.session.userId, {
++      uploadInfo = await this.bot.internal.uploadPreparePrivate(this.session.channelId, {
+         file_type: fileType,
+         file_size: fileData.length,
+         file_name: fileName,
+@@ -1362,13 +1393,13 @@ var QQMessageEncoder = class extends import_core4.MessageEncoder {
+         md5: import_crypto.default.createHash("md5").update(buffer).digest("hex")
+       };
+       if (this.session.isDirect) {
+-        await this.bot.internal.uploadPartFinishPrivate(this.options.session.userId, data);
++        await this.bot.internal.uploadPartFinishPrivate(this.session.channelId, data);
+       } else {
+         await this.bot.internal.uploadPartFinishGuild(this.session.channelId, data);
+       }
+     }
+     if (this.session.isDirect) {
+-      return this.bot.internal.sendFilePrivate(this.options.session.userId, {
++      return this.bot.internal.sendFilePrivate(this.session.channelId, {
+         upload_id: uploadInfo.upload_id,
+         srv_send_msg: !!send
+       });
 @@ -2195,6 +2226,7 @@ var QQBot = class extends import_core7.Bot {
    http;
    _token;
@@ -271,6 +305,44 @@ index 325a306..6031289 100644
    async getLogin() {
      return this.toJSON()
    }
+diff --git a/src/message.ts b/src/message.ts
+index 68e3885..72376c8 100644
+--- a/src/message.ts
++++ b/src/message.ts
+@@ -357,7 +357,7 @@ export class QQMessageEncoder<C extends Context = Context> extends MessageEncode
+           data.file_data = fileDataBase64 ?? fileData.toString('base64')
+         }
+         if (this.session.isDirect) {
+-          res = await this.bot.internal.sendFilePrivate(this.options.session.userId, data)
++          res = await this.bot.internal.sendFilePrivate(this.session.channelId, data)
+         } else {
+           res = await this.bot.internal.sendFileGuild(this.session.channelId, data)
+         }
+@@ -385,7 +385,7 @@ export class QQMessageEncoder<C extends Context = Context> extends MessageEncode
+     const sha1 = crypto.createHash('sha1').update(fileData).digest('hex')
+     let uploadInfo: QQ.Message.File.UploadPrepareResponse
+     if (this.session.isDirect) {
+-      uploadInfo = await this.bot.internal.uploadPreparePrivate(this.options.session.userId, {
++      uploadInfo = await this.bot.internal.uploadPreparePrivate(this.session.channelId, {
+         file_type: fileType, file_size: fileData.length, file_name: fileName, md5, sha1,
+       })
+     } else {
+@@ -404,13 +404,13 @@ export class QQMessageEncoder<C extends Context = Context> extends MessageEncode
+         md5: crypto.createHash('md5').update(buffer).digest('hex'),
+       }
+       if (this.session.isDirect) {
+-        await this.bot.internal.uploadPartFinishPrivate(this.options.session.userId, data)
++        await this.bot.internal.uploadPartFinishPrivate(this.session.channelId, data)
+       } else {
+         await this.bot.internal.uploadPartFinishGuild(this.session.channelId, data)
+       }
+     }
+     if (this.session.isDirect) {
+-      return this.bot.internal.sendFilePrivate(this.options.session.userId, {
++      return this.bot.internal.sendFilePrivate(this.session.channelId, {
+         upload_id: uploadInfo.upload_id,
+         srv_send_msg: !!send,
+       })
 diff --git a/src/ws.ts b/src/ws.ts
 index eda68b1..545ede7 100644
 --- a/src/ws.ts

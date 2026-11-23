@@ -1,5 +1,5 @@
 diff --git a/lib/index.js b/lib/index.js
-index 3acbdff..0fec2d3 100644
+index 3acbdff..06e6bd9 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -202,7 +202,9 @@ var Http = class _Http extends Service {
@@ -26,3 +26,34 @@ index 3acbdff..0fec2d3 100644
        }).catch((cause) => {
          this.ctx.logger("http:request").debug("%C %s failed: %o", method, url.href, cause);
          if (_Http.Error.is(cause)) throw cause;
+@@ -333,16 +339,23 @@ var Http = class _Http extends Service {
+       if (!factory) throw new Error(`Cannot resolve proxy agent ${proxyURL}`);
+       init.dispatcher = factory(proxyURL);
+     }
++    let upgraded, timer;
+     const socket = this.ctx.waterfall(this, "http/websocket", url, init, config, () => {
+       this.ctx.logger("http:ws").debug("connect %s", url.href);
+-      return new this.undici.WebSocket(url, init);
+-    });
+-    const dispose = this.ctx.effect(() => {
+-      return () => socket.close(1e3, "context disposed");
+-    }, "new WebSocket()");
+-    socket.addEventListener("close", () => {
+-      dispose();
++      const base = init.dispatcher ?? this.undici.getGlobalDispatcher?.();
++      const capture = (h) => new Proxy(h, { get: (t, p) => { const v = t[p]; return typeof v !== "function" ? v : p === "onRequestUpgrade" || p === "onUpgrade" ? (...a) => (upgraded = a.at(-1), v.apply(t, a)) : v.bind(t); } });
++      return new this.undici.WebSocket(url, base?.dispatch ? { ...init, dispatcher: { dispatch: (o, h) => base.dispatch(o, capture(h)) } } : init);
+     });
++    const close = socket.close?.bind(socket);
++    if (close) socket.close = (...args) => {
++      const res = close(...args);
++      if (!timer && socket.readyState !== 3) (timer = setTimeout(() => {
++        if (socket.readyState !== 3) upgraded?.destroyed === false ? upgraded.destroy() : socket.terminate?.();
++      }, 5e3)).unref?.();
++      return res;
++    };
++    const dispose = this.ctx.effect(() => () => socket.close(1e3, "context disposed"), "new WebSocket()");
++    socket.addEventListener("close", () => { clearTimeout(timer); timer = void 0; dispose(); });
+     return socket;
+   }
+ };

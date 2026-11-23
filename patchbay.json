@@ -13,10 +13,11 @@
     {
       "name": "@cordisjs/plugin-http",
       "version": "1.5.2",
-      "description": "Use resolveIntercept, which Cordis 4 renamed from resolveConfig; merge request headers per name and send the global FormData as multipart",
+      "description": "Use resolveIntercept, which Cordis 4 renamed from resolveConfig; merge request headers per name, send the global FormData as multipart, and enforce a 5-second WebSocket close deadline",
       "fixes": [
         "ChatLunaLab/v2-mirror#140",
-        "ChatLunaLab/v2-mirror#145"
+        "ChatLunaLab/v2-mirror#145",
+        "ChatLunaLab/v2-mirror#564"
       ]
     },
     {

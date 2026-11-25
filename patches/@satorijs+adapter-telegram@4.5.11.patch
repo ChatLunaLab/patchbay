@@ -1,5 +1,5 @@
 diff --git a/lib/index.cjs b/lib/index.cjs
-index 01364de..27e76a5 100644
+index 01364de..2beba3b 100644
 --- a/lib/index.cjs
 +++ b/lib/index.cjs
 @@ -244,10 +244,11 @@ async function handleUpdate(update, bot) {
@@ -99,7 +99,98 @@ index 01364de..27e76a5 100644
        this.payload.message_thread_id = +this.channelId;
      }
    }
-@@ -564,8 +578,8 @@ var TelegramMessageEncoder = class extends import_core2.MessageEncoder {
+@@ -479,7 +493,7 @@ var TelegramMessageEncoder = class extends import_core2.MessageEncoder {
+     if (this.payload.caption || this.asset.length > 0) {
+       this.trimButtons();
+       if (this.asset.length > 0) {
+-        const files = [];
++        const batches = [];
+         const typeMap = {
+           img: "photo",
+           image: "photo",
+@@ -490,14 +504,49 @@ var TelegramMessageEncoder = class extends import_core2.MessageEncoder {
+         let i = 0;
+         for (const element of this.asset) {
+           const { filename, data, type: mime } = await this.bot.ctx.http.file(element.attrs.src || element.attrs.url, element.attrs);
+-          files.push({
++          let type = typeMap[element.type] ?? element.type;
++          const voice = element.attrs.voice;
++          if (type === "voice") type = voice === false || voice === "false" ? "audio" : "voice";
++          if (type === "audio" && (voice === true || voice === "true")) type = "voice";
++          if (mime?.toLowerCase() === "image/gif" || /\.gif$/i.test(filename)) type = "animation";
++          const files = batches.at(-1);
++          const file = {
+             filename: i++ + filename,
+             data,
+             mime,
+-            type: filename.endsWith("gif") ? "animation" : typeMap[element.type] ?? element.type,
++            type,
+             element
+-          });
++          };
++          if (!files || type === "animation" || type === "voice" || files[0].type === "animation" || files[0].type === "voice") batches.push([file]);
++          else files.push(file);
++        }
++        for (const files of batches) {
++          await this.sendBatch(files);
++          this.payload.caption = "";
++          this.rows = [];
+         }
++        delete this.payload.reply_to_message_id;
++        this.asset = [];
++      } else {
++        const result = await this.bot.internal.sendMessage({
++          chat_id: this.payload.chat_id,
++          text: this.payload.caption,
++          parse_mode: this.payload.parse_mode,
++          reply_to_message_id: this.payload.reply_to_message_id,
++          message_thread_id: this.payload.message_thread_id,
++          disable_web_page_preview: !this.options.linkPreview,
++          reply_markup: {
++            inline_keyboard: this.rows
++          }
++        });
++        await this.addResult(result);
++        delete this.payload.reply_to_message_id;
++        this.payload.caption = "";
++        this.rows = [];
++      }
++    }
++  }
++  async sendBatch(files) {
+         const inputFiles = [];
+         for (const { filename, type, element } of files) {
+           const media = "attach://" + filename;
+@@ -518,7 +567,7 @@ var TelegramMessageEncoder = class extends import_core2.MessageEncoder {
+             media: JSON.stringify(inputFiles)
+           };
+           for (const key in data) {
+-            form.append(key, data[key]);
++            if (data[key] !== undefined) form.append(key, data[key]);
+           }
+           for (const { filename, data: data2, mime } of files) {
+             form.append(filename, new Blob([data2], { type: mime }), filename);
+@@ -540,18 +589,11 @@ var TelegramMessageEncoder = class extends import_core2.MessageEncoder {
+               }
+             });
+             await this.addResult(result2);
+-            delete this.payload.reply_to_message_id;
+-            this.payload.caption = "";
+-            this.rows = [];
+           }
+-          delete this.payload.reply_to_message_id;
+-          this.payload.caption = "";
+-          this.rows = [];
+-          this.asset = [];
+         } else {
+           const sendMap = [
+             ["audio", ["sendAudio", "audio"]],
+-            ["voice", ["sendAudio", "audio"]],
++            ["voice", ["sendVoice", "voice"]],
+             ["video", ["sendVideo", "video"]],
+             ["animation", ["sendAnimation", "animation"]],
+             ["image", ["sendPhoto", "photo"]],
+@@ -564,36 +606,15 @@ var TelegramMessageEncoder = class extends import_core2.MessageEncoder {
            formData.append("chat_id", this.payload.chat_id);
            formData.append("caption", this.payload.caption);
            formData.append("parse_mode", this.payload.parse_mode);
@@ -107,10 +198,48 @@ index 01364de..27e76a5 100644
 -          formData.append("message_thread_id", this.payload.message_thread_id);
 +          if (this.payload.reply_to_message_id !== undefined) formData.append("reply_to_message_id", this.payload.reply_to_message_id);
 +          if (this.payload.message_thread_id !== undefined) formData.append("message_thread_id", this.payload.message_thread_id);
++          if (this.rows.length) formData.append("reply_markup", JSON.stringify({ inline_keyboard: this.rows }));
            formData.append("has_spoiler", files[0].element.attrs.spoiler ? "true" : "false");
            formData.append(dataKey, "attach://" + files[0].filename);
            formData.append(files[0].filename, new Blob([files[0].data], { type: files[0].mime }), files[0].filename);
-@@ -874,10 +888,12 @@ var TelegramBot = class _TelegramBot extends import_core5.Bot {
+           const result = await this.bot.internal[method](formData);
+           await this.addResult(result);
+-          this.payload.caption = "";
+-          this.rows = [];
+-          this.asset = [];
+-          delete this.payload.reply_to_message_id;
+         }
+-      } else {
+-        const result = await this.bot.internal.sendMessage({
+-          chat_id: this.payload.chat_id,
+-          text: this.payload.caption,
+-          parse_mode: this.payload.parse_mode,
+-          reply_to_message_id: this.payload.reply_to_message_id,
+-          message_thread_id: this.payload.message_thread_id,
+-          disable_web_page_preview: !this.options.linkPreview,
+-          reply_markup: {
+-            inline_keyboard: this.rows
+-          }
+-        });
+-        await this.addResult(result);
+-        delete this.payload.reply_to_message_id;
+-        this.payload.caption = "";
+-        this.rows = [];
+-      }
+-    }
+   }
+   decodeButton(attrs, label) {
+     if (attrs.type === "link") {
+@@ -650,7 +671,7 @@ var TelegramMessageEncoder = class extends import_core2.MessageEncoder {
+       if (attrs.id) {
+         this.payload.caption += `<a href="tg://user?id=${attrs.id}">@${attrs.name || attrs.id}</a>`;
+       }
+-    } else if (["img", "image", "audio", "video", "file"].includes(type)) {
++    } else if (["img", "image", "audio", "voice", "video", "file"].includes(type)) {
+       this.asset.push(element);
+     } else if (type === "figure") {
+       await this.flush();
+@@ -874,10 +895,12 @@ var TelegramBot = class _TelegramBot extends import_core5.Bot {
      this.online();
    }
    async deleteMessage(chat_id, message_id) {
@@ -123,3 +252,173 @@ index 01364de..27e76a5 100644
      message_id = +message_id;
      const payload = {
        chat_id,
+diff --git a/src/message.ts b/src/message.ts
+index 1d41526..7ecbf72 100644
+--- a/src/message.ts
++++ b/src/message.ts
+@@ -4,6 +4,14 @@ import * as Telegram from './utils'
+ 
+ type RenderMode = 'default' | 'figure'
+ 
++interface Asset {
++  filename: string
++  data: ArrayBuffer
++  mime: string
++  type: string
++  element: Element
++}
++
+ const supportedElements = ['b', 'strong', 'i', 'em', 'u', 'ins', 's', 'del', 'a']
+ 
+ export class TelegramMessageEncoder<C extends Context = Context> extends MessageEncoder<C, TelegramBot<C>> {
+@@ -34,13 +42,7 @@ export class TelegramMessageEncoder<C extends Context = Context> extends Message
+       this.trimButtons()
+ 
+       if (this.asset.length > 0) {
+-        const files: {
+-          filename: string
+-          data: ArrayBuffer
+-          mime: string
+-          type: string
+-          element: Element
+-        }[] = []
++        const batches: Asset[][] = []
+ 
+         const typeMap = {
+           img: 'photo',
+@@ -53,15 +55,51 @@ export class TelegramMessageEncoder<C extends Context = Context> extends Message
+         let i = 0
+         for (const element of this.asset) {
+           const { filename, data, type: mime } = await this.bot.ctx.http.file(element.attrs.src || element.attrs.url, element.attrs)
+-          files.push({
++          let type = typeMap[element.type] ?? element.type
++          const voice = element.attrs.voice
++          if (type === 'voice') type = voice === false || voice === 'false' ? 'audio' : 'voice'
++          if (type === 'audio' && (voice === true || voice === 'true')) type = 'voice'
++          if (mime?.toLowerCase() === 'image/gif' || /\.gif$/i.test(filename)) type = 'animation'
++          const files = batches.at(-1)
++          const file: Asset = {
+             filename: (i++) + filename,
+             data,
+             mime,
+-            type: filename.endsWith('gif') ? 'animation' : typeMap[element.type] ?? element.type,
++            type,
+             element,
+-          })
++          }
++          if (!files || type === 'animation' || type === 'voice' || files[0].type === 'animation' || files[0].type === 'voice') batches.push([file])
++          else files.push(file)
+         }
+ 
++        for (const files of batches) {
++          await this.sendBatch(files)
++          this.payload.caption = ''
++          this.rows = []
++        }
++        delete this.payload.reply_to_message_id
++        this.asset = []
++      } else {
++        const result = await this.bot.internal.sendMessage({
++          chat_id: this.payload.chat_id,
++          text: this.payload.caption,
++          parse_mode: this.payload.parse_mode,
++          reply_to_message_id: this.payload.reply_to_message_id,
++          message_thread_id: this.payload.message_thread_id,
++          disable_web_page_preview: !this.options.linkPreview,
++          reply_markup: {
++            inline_keyboard: this.rows,
++          },
++        })
++        await this.addResult(result)
++        delete this.payload.reply_to_message_id
++        this.payload.caption = ''
++        this.rows = []
++      }
++    }
++  }
++
++  private async sendBatch(files: Asset[]) {
+         // Array of InputMediaAudio, InputMediaDocument, InputMediaPhoto and InputMediaVideo
+         const inputFiles: Telegram.InputFile[] = []
+ 
+@@ -87,7 +125,7 @@ export class TelegramMessageEncoder<C extends Context = Context> extends Message
+             media: JSON.stringify(inputFiles),
+           }
+           for (const key in data) {
+-            form.append(key, data[key])
++            if (data[key] !== undefined) form.append(key, data[key])
+           }
+ 
+           for (const { filename, data, mime } of files) {
+@@ -113,19 +151,12 @@ export class TelegramMessageEncoder<C extends Context = Context> extends Message
+             })
+ 
+             await this.addResult(result2)
+-            delete this.payload.reply_to_message_id
+-            this.payload.caption = ''
+-            this.rows = []
+           }
+ 
+-          delete this.payload.reply_to_message_id
+-          this.payload.caption = ''
+-          this.rows = []
+-          this.asset = []
+         } else {
+           const sendMap = [
+             ['audio', ['sendAudio', 'audio']],
+-            ['voice', ['sendAudio', 'audio']],
++            ['voice', ['sendVoice', 'voice']],
+             ['video', ['sendVideo', 'video']],
+             ['animation', ['sendAnimation', 'animation']],
+             ['image', ['sendPhoto', 'photo']],
+@@ -139,8 +170,9 @@ export class TelegramMessageEncoder<C extends Context = Context> extends Message
+           formData.append('chat_id', this.payload.chat_id)
+           formData.append('caption', this.payload.caption)
+           formData.append('parse_mode', this.payload.parse_mode)
+-          formData.append('reply_to_message_id', this.payload.reply_to_message_id)
+-          formData.append('message_thread_id', this.payload.message_thread_id)
++          if (this.payload.reply_to_message_id !== undefined) formData.append('reply_to_message_id', this.payload.reply_to_message_id)
++          if (this.payload.message_thread_id !== undefined) formData.append('message_thread_id', this.payload.message_thread_id)
++          if (this.rows.length) formData.append('reply_markup', JSON.stringify({ inline_keyboard: this.rows }))
+           formData.append('has_spoiler', files[0].element.attrs.spoiler ? 'true' : 'false')
+           formData.append(dataKey, 'attach://' + files[0].filename)
+           formData.append(files[0].filename, new Blob([files[0].data], { type: files[0].mime }), files[0].filename)
+@@ -148,29 +180,7 @@ export class TelegramMessageEncoder<C extends Context = Context> extends Message
+           // @ts-ignore
+           const result = await this.bot.internal[method](formData)
+           await this.addResult(result)
+-          this.payload.caption = ''
+-          this.rows = []
+-          this.asset = []
+-          delete this.payload.reply_to_message_id
+         }
+-      } else {
+-        const result = await this.bot.internal.sendMessage({
+-          chat_id: this.payload.chat_id,
+-          text: this.payload.caption,
+-          parse_mode: this.payload.parse_mode,
+-          reply_to_message_id: this.payload.reply_to_message_id,
+-          message_thread_id: this.payload.message_thread_id,
+-          disable_web_page_preview: !this.options.linkPreview,
+-          reply_markup: {
+-            inline_keyboard: this.rows,
+-          },
+-        })
+-        await this.addResult(result)
+-        delete this.payload.reply_to_message_id
+-        this.payload.caption = ''
+-        this.rows = []
+-      }
+-    }
+   }
+ 
+   decodeButton(attrs: Dict, label: string): Telegram.InlineKeyboardButton {
+@@ -231,7 +241,7 @@ export class TelegramMessageEncoder<C extends Context = Context> extends Message
+       if (attrs.id) {
+         this.payload.caption += `<a href="tg://user?id=${attrs.id}">@${attrs.name || attrs.id}</a>`
+       }
+-    } else if (['img', 'image', 'audio', 'video', 'file'].includes(type)) {
++    } else if (['img', 'image', 'audio', 'voice', 'video', 'file'].includes(type)) {
+       this.asset.push(element)
+     } else if (type === 'figure') {
+       await this.flush()

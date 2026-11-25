@@ -1,5 +1,5 @@
 diff --git a/lib/index.cjs b/lib/index.cjs
-index c3cecb6..6eddf09 100644
+index c3cecb6..39df73d 100644
 --- a/lib/index.cjs
 +++ b/lib/index.cjs
 @@ -1259,22 +1259,30 @@ async function decodeMessage(bot, data, message, payload = message, details = tr
@@ -79,3 +79,68 @@ index c3cecb6..6eddf09 100644
    } else if (input.t === "MESSAGE_REACTION_ADD") {
      session.type = "reaction-added";
      setupReaction(session, input.d);
+@@ -1932,20 +1958,20 @@ var DiscordMessageEncoder = class extends import_core3.MessageEncoder {
+         ...this.addition,
+         embeds: [{ ...attrs }]
+       });
+-    } else if (type === "audio" && attrs.src) {
++    } else if ((type === "audio" || type === "voice") && attrs.src) {
+       await this.flush();
++      const { voice, duration, waveform } = attrs;
++      const native = (voice === true || voice === "true" || type === "voice" && voice !== false && voice !== "false")
++        && Number.isFinite(Number(duration)) && Number(duration) > 0
++        && typeof waveform === "string" && /^[A-Za-z0-9+/]+={0,2}$/.test(waveform)
++        && Buffer.from(waveform, "base64").length > 0 && Buffer.from(waveform, "base64").length <= 256;
+       await this.sendAsset("file", attrs, {
+         ...this.addition,
+         content: "",
+-        attachments: [
+-          {
+-            waveform: "",
+-            // base64 encoded bytearray representing a sampled waveform
+-            id: 0,
+-            duration_secs: attrs.duration ?? 0
+-          }
+-        ],
+-        flags: Message2.Flag.IS_VOICE_MESSAGE
++        ...native ? {
++          attachments: [{ waveform, id: 0, duration_secs: Number(duration) }],
++          flags: Message2.Flag.IS_VOICE_MESSAGE
++        } : {}
+       });
+       this.buffer = "";
+     } else if (type === "author") {
+diff --git a/src/message.ts b/src/message.ts
+index a6d28cf..e08ea7e 100644
+--- a/src/message.ts
++++ b/src/message.ts
+@@ -310,19 +310,20 @@ export class DiscordMessageEncoder<C extends Context = Context> extends MessageE
+         ...this.addition,
+         embeds: [{ ...attrs }],
+       })
+-    } else if (type === 'audio' && attrs.src) {
++    } else if ((type === 'audio' || type === 'voice') && attrs.src) {
+       await this.flush()
++      const { voice, duration, waveform } = attrs
++      const native = (voice === true || voice === 'true' || type === 'voice' && voice !== false && voice !== 'false')
++        && Number.isFinite(Number(duration)) && Number(duration) > 0
++        && typeof waveform === 'string' && /^[A-Za-z0-9+/]+={0,2}$/.test(waveform)
++        && Buffer.from(waveform, 'base64').length > 0 && Buffer.from(waveform, 'base64').length <= 256
+       await this.sendAsset('file', attrs, {
+         ...this.addition,
+         content: '',
+-        attachments: [
+-          {
+-            waveform: '', // base64 encoded bytearray representing a sampled waveform
+-            id: 0,
+-            duration_secs: attrs.duration ?? 0,
+-          },
+-        ],
+-        flags: Message.Flag.IS_VOICE_MESSAGE,
++        ...(native ? {
++          attachments: [{ waveform, id: 0, duration_secs: Number(duration) }],
++          flags: Message.Flag.IS_VOICE_MESSAGE,
++        } : {}),
+       })
+       this.buffer = ''
+     } else if (type === 'author') {

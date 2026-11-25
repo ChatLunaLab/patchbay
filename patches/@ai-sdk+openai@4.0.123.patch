@@ -1,0 +1,158 @@
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index a3f4575..9b3cd55 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -2421,7 +2421,9 @@ type OpenAIImageModelId = OpenAIModelIds['image'] | (string & {});
+ declare const openaiImageModelOptions: import("@ai-sdk/provider-utils").LazySchema<{
+   quality?: "low" | "medium" | "high" | "xhigh" | "max" | "standard" | "auto" | "hd" | undefined;
+   background?: "auto" | "transparent" | "opaque" | undefined;
+-  outputFormat?: "png" | "jpeg" | "webp" | undefined;
++  outputFormat?: "png" | "jpeg" | "webp" | "gif" | undefined;
++  frameCount?: number | undefined;
++  frameDurationMs?: number | undefined;
+   complexity?: "low" | "medium" | "high" | undefined;
+   outputCompression?: number | undefined;
+   user?: string | undefined;
+@@ -4364,4 +4366,4 @@ declare const openaiDecisionModelOptions: import("@ai-sdk/provider-utils").LazyS
+ type OpenAIDecisionModelOptions = InferSchema<typeof openaiDecisionModelOptions>;
+ //#endregion
+ export { type OpenAIRealtimeFactory as Experimental_OpenAIRealtimeFactory, OpenAIRealtimeModel as Experimental_OpenAIRealtimeModel, type OpenAIRealtimeModelConfig as Experimental_OpenAIRealtimeModelConfig, OpenAIRealtimeModelLive as Experimental_OpenAIRealtimeModelLive, type OpenAIRealtimeModelLiveConfig as Experimental_OpenAIRealtimeModelLiveConfig, type OpenAIRealtimeModelLiveId as Experimental_OpenAIRealtimeModelLiveId, type OpenAIRealtimeModelLiveOptions as Experimental_OpenAIRealtimeModelLiveOptions, type OpenAIRealtimeOptions as Experimental_OpenAIRealtimeOptions, OpenAISpeechTranslationModel as Experimental_OpenAISpeechTranslationModel, OpenAISpeechTranslationModel as Experimental_OpenAITranslationModel, type OpenAISpeechTranslationModelId as Experimental_OpenAISpeechTranslationModelId, type OpenAISpeechTranslationModelId as Experimental_OpenAITranslationModelId, type OpenAISpeechTranslationModelOptions as Experimental_OpenAISpeechTranslationModelOptions, type OpenAISpeechTranslationModelOptions as Experimental_OpenAITranslationModelOptions, type OpenAILanguageModelChatOptions as OpenAIChatLanguageModelOptions, type OpenAILanguageModelChatOptions, type OpenAIChatMessageProviderOptions, type OpenAIComputerAction, type OpenAIComputerSafetyCheck, type OpenAIDecisionModelId, type OpenAIDecisionModelOptions, type OpenAIEmbeddingModelOptions, type OpenAIFilesOptions, type OpenAIImageModelEditOptions, type OpenAIImageModelGenerationOptions, type OpenAIImageModelOptions, type OpenAILanguageModelCompletionOptions, type OpenAILanguageModelResponsesOptions, type OpenAILanguageModelResponsesOptions as OpenAIResponsesProviderOptions, type OpenAIProvider, type OpenAIProviderSettings, type OpenAIResponsesSystemMessageOptions, type OpenAIResponsesToolResultOptions, type OpenAISpeechModelOptions, type OpenAIToolOptions, type OpenAITranscriptionModelOptions, type OpenaiResponsesCompactionProviderMetadata, type OpenaiResponsesProviderMetadata, type OpenaiResponsesReasoningProviderMetadata, type OpenaiResponsesSourceDocumentProviderMetadata, type OpenaiResponsesTextProviderMetadata, type OpenaiResponsesToolCallProviderMetadata };
+-//# sourceMappingURL=index.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=index.d.ts.map
+diff --git a/dist/index.js b/dist/index.js
+index db4b3c0..497c6bd 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -4714,8 +4714,11 @@ const baseImageModelOptionsObject = () => z.object({
+ 	outputFormat: z.enum([
+ 		"png",
+ 		"jpeg",
+-		"webp"
++		"webp",
++		"gif"
+ 	]).optional(),
++	frameCount: z.number().int().min(2).max(16).optional(),
++	frameDurationMs: z.number().int().min(20).max(2e3).optional(),
+ 	/**
+ 	* How much detail the model puts into the image. Supported by GPT Image
+ 	* 2.6 models. The API defaults to `high`.
+@@ -4881,6 +4884,8 @@ var OpenAIImageModel = class OpenAIImageModel {
+ 					quality: openaiOptions.quality,
+ 					background: openaiOptions.background,
+ 					output_format: openaiOptions.outputFormat,
++					frame_count: openaiOptions.frameCount,
++					frame_duration_ms: openaiOptions.frameDurationMs,
+ 					output_compression: openaiOptions.outputCompression,
+ 					complexity: openaiOptions.complexity,
+ 					input_fidelity: openaiOptions.inputFidelity,
+@@ -13589,4 +13594,4 @@ const openai = createOpenAI();
+ //#endregion
+ export { OpenAIRealtimeModel as Experimental_OpenAIRealtimeModel, OpenAIRealtimeModelLive as Experimental_OpenAIRealtimeModelLive, OpenAISpeechTranslationModel as Experimental_OpenAISpeechTranslationModel, OpenAISpeechTranslationModel as Experimental_OpenAITranslationModel, VERSION, createOpenAI, openai };
+ 
+-//# sourceMappingURL=index.js.map
+\ No newline at end of file
++//# sourceMappingURL=index.js.map
+diff --git a/dist/internal/index.d.ts b/dist/internal/index.d.ts
+index 3142b3e..776b889 100644
+--- a/dist/internal/index.d.ts
++++ b/dist/internal/index.d.ts
+@@ -2642,7 +2642,10 @@ export declare const openaiImageModelEditOptionsShape: () => {
+     png: "png";
+     jpeg: "jpeg";
+     webp: "webp";
++    gif: "gif";
+   }>>;
++  frameCount: z.ZodOptional<z.ZodNumber>;
++  frameDurationMs: z.ZodOptional<z.ZodNumber>;
+   complexity: z.ZodOptional<z.ZodEnum<{
+     low: "low";
+     medium: "medium";
+@@ -2664,7 +2667,9 @@ export declare const openaiImageModelEditOptionsShape: () => {
+ export declare const openaiImageModelEditOptions: import("@ai-sdk/provider-utils").LazySchema<{
+   quality?: "low" | "medium" | "high" | "xhigh" | "max" | "standard" | "auto" | "hd" | undefined;
+   background?: "auto" | "transparent" | "opaque" | undefined;
+-  outputFormat?: "png" | "jpeg" | "webp" | undefined;
++  outputFormat?: "png" | "jpeg" | "webp" | "gif" | undefined;
++  frameCount?: number | undefined;
++  frameDurationMs?: number | undefined;
+   complexity?: "low" | "medium" | "high" | undefined;
+   outputCompression?: number | undefined;
+   user?: string | undefined;
+@@ -5514,4 +5519,4 @@ export declare const webSearchPreview: import("@ai-sdk/provider-utils").Provider
+   };
+ }, {}>;
+ //#endregion
+-//# sourceMappingURL=index.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=index.d.ts.map
+diff --git a/dist/internal/index.js b/dist/internal/index.js
+index 3ea54bf..7a5fc60 100644
+--- a/dist/internal/index.js
++++ b/dist/internal/index.js
+@@ -4237,8 +4237,11 @@ const baseImageModelOptionsObject = () => z.object({
+ 	outputFormat: z.enum([
+ 		"png",
+ 		"jpeg",
+-		"webp"
++		"webp",
++		"gif"
+ 	]).optional(),
++	frameCount: z.number().int().min(2).max(16).optional(),
++	frameDurationMs: z.number().int().min(20).max(2e3).optional(),
+ 	/**
+ 	* How much detail the model puts into the image. Supported by GPT Image
+ 	* 2.6 models. The API defaults to `high`.
+@@ -4404,6 +4407,8 @@ var OpenAIImageModel = class OpenAIImageModel {
+ 					quality: openaiOptions.quality,
+ 					background: openaiOptions.background,
+ 					output_format: openaiOptions.outputFormat,
++					frame_count: openaiOptions.frameCount,
++					frame_duration_ms: openaiOptions.frameDurationMs,
+ 					output_compression: openaiOptions.outputCompression,
+ 					complexity: openaiOptions.complexity,
+ 					input_fidelity: openaiOptions.inputFidelity,
+@@ -11113,4 +11118,4 @@ function escapeJSONDelta(delta) {
+ //#endregion
+ export { OpenAIChatLanguageModel, OpenAICompletionLanguageModel, OpenAIEmbeddingModel, OpenAIImageModel, OpenAIResponsesLanguageModel, OpenAISpeechModel, OpenAITranscriptionModel, applyPatch, applyPatchArgsSchema, applyPatchInputSchema, applyPatchOutputSchema, applyPatchToolFactory, codeInterpreter, codeInterpreterArgsSchema, codeInterpreterInputSchema, codeInterpreterOutputSchema, codeInterpreterToolFactory, customArgsSchema, customTool, customToolFactory, fileSearch, fileSearchArgsSchema, fileSearchOutputSchema, getMaxImagesPerCall, hasDefaultResponseFormat, imageGeneration, imageGenerationArgsSchema, imageGenerationOutputSchema, mapWebSearchResult, modelMaxImagesPerCall, openAITranscriptionModelOptions, openAITranscriptionModelOptionsShape, openaiChatMessageProviderOptions, openaiEmbeddingModelOptions, openaiImageModelEditOptions, openaiImageModelEditOptionsShape, openaiImageModelGenerationOptions, openaiImageModelGenerationOptionsShape, openaiImageModelOptions, openaiLanguageModelChatOptions, openaiLanguageModelCompletionOptions, openaiModelCatalog, openaiResponsesSupportedUrls, openaiSpeechModelOptionsSchema, openaiSpeechModelOptionsShape, programmaticToolCalling, programmaticToolCallingInputSchema, programmaticToolCallingOutputSchema, shell, shellArgsSchema, shellInputSchema, shellOutputSchema, toolSearch, toolSearchArgsSchema, toolSearchInputSchema, toolSearchOutputSchema, webSearch, webSearchArgsSchema, webSearchOutputSchema, webSearchPreview, webSearchPreviewArgsSchema, webSearchPreviewInputSchema, webSearchToolFactory };
+ 
+-//# sourceMappingURL=index.js.map
+\ No newline at end of file
++//# sourceMappingURL=index.js.map
+diff --git a/src/image/openai-image-model-options.ts b/src/image/openai-image-model-options.ts
+index 9d528e9..98b44e1 100644
+--- a/src/image/openai-image-model-options.ts
++++ b/src/image/openai-image-model-options.ts
+@@ -51,7 +51,9 @@ const baseImageModelOptionsObject = () =>
+     /**
+      * Format in which the generated image(s) are returned.
+      */
+-    outputFormat: z.enum(['png', 'jpeg', 'webp']).optional(),
++    outputFormat: z.enum(['png', 'jpeg', 'webp', 'gif']).optional(),
++    frameCount: z.number().int().min(2).max(16).optional(),
++    frameDurationMs: z.number().int().min(20).max(2000).optional(),
+ 
+     /**
+      * How much detail the model puts into the image. Supported by GPT Image
+diff --git a/src/image/openai-image-model.ts b/src/image/openai-image-model.ts
+index 10c49c0..0f77b1b 100644
+--- a/src/image/openai-image-model.ts
++++ b/src/image/openai-image-model.ts
+@@ -190,6 +190,8 @@ export class OpenAIImageModel implements ImageModelV4 {
+           quality: openaiOptions.quality,
+           background: openaiOptions.background,
+           output_format: openaiOptions.outputFormat,
++          frame_count: openaiOptions.frameCount,
++          frame_duration_ms: openaiOptions.frameDurationMs,
+           output_compression: openaiOptions.outputCompression,
+           complexity: openaiOptions.complexity,
+           input_fidelity: openaiOptions.inputFidelity,
+@@ -368,6 +370,8 @@ type OpenAIImageEditInput = {
+   quality?: OpenAIImageModelEditOptions['quality'];
+   background?: OpenAIImageModelEditOptions['background'];
+   output_format?: OpenAIImageModelEditOptions['outputFormat'];
++  frame_count?: OpenAIImageModelEditOptions['frameCount'];
++  frame_duration_ms?: OpenAIImageModelEditOptions['frameDurationMs'];
+   output_compression?: OpenAIImageModelEditOptions['outputCompression'];
+   complexity?: OpenAIImageModelEditOptions['complexity'];
+   input_fidelity?: OpenAIImageModelEditOptions['inputFidelity'];
